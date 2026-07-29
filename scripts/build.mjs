@@ -12,15 +12,15 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = resolve(__dirname, '..');
-const isWin = process.platform === 'win32';
+const tsupCli = resolve(root, 'node_modules', 'tsup', 'dist', 'cli-default.js');
+const viteCli = resolve(root, 'node_modules', 'vite', 'bin', 'vite.js');
 
-function run(label, command, args) {
+function run(label, script, args) {
   return new Promise((resolveP, reject) => {
     console.log(`\n▶ ${label}\n`);
-    const child = spawn(command, args, {
+    const child = spawn(process.execPath, [script, ...args], {
       stdio: 'inherit',
       cwd: root,
-      shell: isWin, // shell mode on Windows so .cmd wrappers resolve
     });
     child.on('error', reject);
     child.on('exit', (code) =>
@@ -31,8 +31,8 @@ function run(label, command, args) {
 
 try {
   await Promise.all([
-    run('Building CLI', 'npx', ['tsup', '--config', 'tsup.cli.config.ts']),
-    run('Building web client', 'npx', ['vite', 'build']),
+    run('Building CLI', tsupCli, ['--config', 'tsup.cli.config.ts']),
+    run('Building web client', viteCli, ['build']),
   ]);
   console.log('\n✅ Build complete.');
   console.log('   • dist/cli/gltf-to-fbx.mjs    (CLI)');

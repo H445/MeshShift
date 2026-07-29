@@ -51,7 +51,8 @@ export function createViewer(canvas: HTMLCanvasElement): ViewerHandle {
   scene.background = null; // CSS gradient shows through
 
   const pmrem = new THREE.PMREMGenerator(renderer);
-  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+  const environmentTarget = pmrem.fromScene(new RoomEnvironment(), 0.04);
+  scene.environment = environmentTarget.texture;
 
   const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 1000);
   camera.position.set(2, 1.5, 2.5);
@@ -122,7 +123,7 @@ export function createViewer(canvas: HTMLCanvasElement): ViewerHandle {
   canvas.addEventListener('pointerdown', handlePointerDown, { capture: true });
   canvas.addEventListener('wheel', notifyUser, { passive: true });
   canvas.addEventListener('touchstart', notifyUser, { passive: true });
-  setInterval(() => {
+  const idleTimer = window.setInterval(() => {
     if (
       autoRotateEnabled &&
       !autoRotate &&
@@ -307,11 +308,18 @@ export function createViewer(canvas: HTMLCanvasElement): ViewerHandle {
     resize: handleResize,
     dispose() {
       cancelAnimationFrame(raf);
+      window.clearInterval(idleTimer);
       ro.disconnect();
+      controls.removeEventListener('start', notifyUser);
+      canvas.removeEventListener('pointerdown', handlePointerDown, true);
+      canvas.removeEventListener('wheel', notifyUser);
+      canvas.removeEventListener('touchstart', notifyUser);
+      disposeObject(root);
+      environmentTarget.dispose();
       pmrem.dispose();
       controls.dispose();
       renderer.dispose();
-      root.traverse(disposeObject);
+      axisLockListeners.clear();
     },
   };
 }

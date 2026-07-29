@@ -17,7 +17,11 @@ export interface ParsedGltf {
 export async function parseGltf(data: ArrayBuffer | Uint8Array): Promise<ParsedGltf> {
   const buffer =
     data instanceof Uint8Array
-      ? data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength)
+      ? data.buffer instanceof ArrayBuffer &&
+        data.byteOffset === 0 &&
+        data.byteLength === data.buffer.byteLength
+        ? data.buffer
+        : data.slice().buffer
       : data;
   return new Promise((resolve, reject) => {
     new GLTFLoader().parse(

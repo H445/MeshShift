@@ -9,14 +9,12 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = resolve(__dirname, '..');
-const isWin = process.platform === 'win32';
+const viteCli = resolve(root, 'node_modules', 'vite', 'bin', 'vite.js');
 
-// On Windows, Node 24 refuses to spawn .cmd/.bat wrappers unless `shell: true`.
-// We use `npx` directly through the shell so the .cmd lookup works everywhere.
-const child = spawn('npx', ['vite'], {
+// Invoke Vite through Node so this works cross-platform without shell parsing.
+const child = spawn(process.execPath, [viteCli], {
   stdio: 'inherit',
   cwd: root,
-  shell: isWin,
 });
 
 child.on('error', (err) => {

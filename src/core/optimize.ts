@@ -2111,7 +2111,6 @@ function makeGlbChunk(type: number, data: Uint8Array): Uint8Array {
  */
 function resizeTextures(scene: import('three').Object3D, maxSize: number): OptimizeChange[] {
   const changes: OptimizeChange[] = [];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const isBrowser = typeof __IS_BROWSER__ !== 'undefined' && __IS_BROWSER__;
   if (!isBrowser) {
     // Mark textures with userData so the assimp FBX exporter honors
@@ -2167,7 +2166,6 @@ function resizeTextures(scene: import('three').Object3D, maxSize: number): Optim
           canvas.height = newH;
           const ctx = canvas.getContext('2d');
           if (!ctx) continue;
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           ctx.imageSmoothingQuality = 'high';
           ctx.drawImage(img, 0, 0, newW, newH);
           tex.image = canvas;

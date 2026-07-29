@@ -14,18 +14,36 @@
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import type { InspectResult } from '../shared/options.js';
 
-declare const __IS_BROWSER__: boolean;
+declare const __IS_BROWSER__: boolean | undefined;
 
 // --- Node polyfill (only when running under Node) ---
 //
-// three.js's GLTFLoader uses `new Image()` and `new FileReader()` to
-// load textures and parse blobs. In Node neither is defined, so we
-// provide minimal stubs that resolve empty results. This is enough
-// for metadata extraction and the optimize pass — we never read pixel
-// data here (texture resize in the browser does the real work).
-if (typeof __IS_BROWSER__ !== 'undefined' && !__IS_BROWSER__) {
+// three.js's GLTFLoader uses `new Image()`, `new FileReader()`, and
+// `new ProgressEvent()` to load textures, parse blobs, and report data-URI
+// buffer progress. Node does not provide all of them, so we install minimal
+// stubs. This is enough for metadata extraction and the optimize pass — we
+// never read pixel data here (texture resize in the browser does the real work).
+const isBrowser =
+  typeof __IS_BROWSER__ === 'boolean' ? __IS_BROWSER__ : typeof window !== 'undefined';
+if (!isBrowser) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const g: any = globalThis;
+  if (typeof g.ProgressEvent === 'undefined') {
+    class NodeProgressEvent {
+      readonly type: string;
+      readonly lengthComputable: boolean;
+      readonly loaded: number;
+      readonly total: number;
+
+      constructor(type: string, init: ProgressEventInit = {}) {
+        this.type = type;
+        this.lengthComputable = init.lengthComputable ?? false;
+        this.loaded = init.loaded ?? 0;
+        this.total = init.total ?? 0;
+      }
+    }
+    g.ProgressEvent = NodeProgressEvent;
+  }
   if (typeof g.Image === 'undefined') {
     class NodeImage {
       width = 0;
@@ -90,9 +108,11 @@ if (typeof __IS_BROWSER__ !== 'undefined' && !__IS_BROWSER__) {
               );
             else buf = blob;
             const u8 = new Uint8Array(buf);
-            let bin = '';
-            for (let i = 0; i < u8.length; i++) bin += String.fromCharCode(u8[i]);
-            this.result = `data:application/octet-stream;base64,${btoa(bin)}`;
+            const chunks: string[] = [];
+            for (let offset = 0; offset < u8.length; offset += 0x8000) {
+              chunks.push(String.fromCharCode(...u8.subarray(offset, offset + 0x8000)));
+            }
+            this.result = `data:application/octet-stream;base64,${btoa(chunks.join(''))}`;
             this.onload?.({ target: this });
             this.onloadend?.({ target: this });
           } catch (e) {
@@ -126,40 +146,6 @@ if (typeof __IS_BROWSER__ !== 'undefined' && !__IS_BROWSER__) {
       }
     }
     g.FileReader = NodeFileReader;
-  }
-  if (typeof g.Blob === 'undefined') {
-    // Node 18+ has a global Blob, but in case the runtime is older:
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    g.Blob = class NodeBlob {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      constructor(
-        public parts: any[],
-        public opts: any = {},
-      ) {}
-      get size() {
-        return this.parts.reduce(
-          (s: number, p: any) => s + (p?.byteLength ?? p?.size ?? p?.length ?? 0),
-          0,
-        );
-      }
-      get type() {
-        return this.opts.type ?? '';
-      }
-      async arrayBuffer(): Promise<ArrayBuffer> {
-        const out = new Uint8Array(this.size);
-        let off = 0;
-        for (const p of this.parts) {
-          let u8: Uint8Array;
-          if (p instanceof Uint8Array) u8 = p;
-          else if (p instanceof ArrayBuffer) u8 = new Uint8Array(p);
-          else if (typeof p === 'string') u8 = new TextEncoder().encode(p);
-          else continue;
-          out.set(u8, off);
-          off += u8.byteLength;
-        }
-        return out.buffer;
-      }
-    };
   }
 }
 
@@ -226,8 +212,15 @@ function computeBBox(geo: {
 export function inspectGltf(buf: ArrayBuffer | Uint8Array): Promise<InspectResult> {
   const ab =
     buf instanceof Uint8Array
-      ? // Copy into a fresh ArrayBuffer in case the input buffer is shared.
+      ? // Reuse a full, non-shared buffer. Copy only sliced/shared views.
         (() => {
+          if (
+            buf.buffer instanceof ArrayBuffer &&
+            buf.byteOffset === 0 &&
+            buf.byteLength === buf.buffer.byteLength
+          ) {
+            return buf.buffer;
+          }
           const a = new ArrayBuffer(buf.byteLength);
           new Uint8Array(a).set(buf);
           return a;

@@ -22,10 +22,13 @@ program
   .argument('<inputs...>', 'One or more input .glb/.gltf files or directories')
   .option('-o, --output <dir>', 'Output directory (default: same dir as input for single files)')
   .option('-r, --recursive', 'Recurse into subdirectories', false)
-  .option('--parallel <n>', 'Concurrent conversions (default: CPU count - 1, max 8)', (v) => parseInt(v, 10))
-  .option('--no-embed-textures', 'Reference textures by path instead of embedding (passed to assimp)')
-  .option('--scale <n>', 'Apply uniform scale (default: 1)', (v) => parseFloat(v))
-  .option('--axis <axis>', 'Output axis (y-up|z-up) (default: "y-up")', 'y-up')
+  .option('--parallel <n>', 'Concurrent conversions (default: CPU count - 1, max 8)', Number)
+  .option(
+    '--no-embed-textures',
+    'Reference textures by path instead of embedding (passed to assimp)',
+  )
+  .option('--scale <n>', 'Apply uniform scale (default: 1)', Number)
+  .option('--axis <axis>', 'Output axis (y-up|z-up)', 'y-up')
   .option('--json', 'Emit a JSON sidecar per file with stats', false)
   .option('--zip', 'Pack all outputs into a single .zip (bulk mode)', false)
   .option('-v, --verbose', 'Verbose per-file progress to stderr', false)
@@ -38,13 +41,13 @@ program
   .option(
     '--max-texture-size <px>',
     'Downsample textures above this size (256|512|1024|2048|4096|8192). 8192 = no resize.',
-    (v) => parseInt(v, 10),
+    Number,
     2048,
   )
   .option(
     '--max-triangles <n>',
     'Decimate any mesh above N triangles (0 = no decimation, requires three.js preprocessing)',
-    (v) => parseInt(v, 10),
+    Number,
     0,
   )
   .option(
@@ -55,10 +58,10 @@ program
   .option(
     '--generate-lods <n>',
     'Generate N LOD levels in addition to LOD0 (three.js preprocessing)',
-    (v) => parseInt(v, 10),
+    Number,
     0,
   )
-  .option('--animation <filter>', 'Animation filter (all|skeletal|none) (default: "all")', 'all')
+  .option('--animation <filter>', 'Animation filter (all|skeletal|none)', 'all')
   .option('--no-morph', 'Skip morph target export')
   .showHelpAfterError();
 
@@ -67,11 +70,42 @@ program.parse(process.argv);
 const opts = program.opts();
 const inputs: string[] = program.args as string[];
 
+function validateOptions(): void {
+  if (
+    opts.parallel !== undefined &&
+    (!Number.isInteger(opts.parallel) || opts.parallel < 1 || opts.parallel > 8)
+  ) {
+    program.error('--parallel must be an integer from 1 to 8.');
+  }
+  if (!Number.isFinite(opts.scale ?? 1) || (opts.scale ?? 1) <= 0) {
+    program.error('--scale must be a positive number.');
+  }
+  if (!Number.isInteger(opts.maxTriangles) || opts.maxTriangles < 0) {
+    program.error('--max-triangles must be a non-negative integer.');
+  }
+  if (!Number.isInteger(opts.generateLods) || opts.generateLods < 0 || opts.generateLods > 8) {
+    program.error('--generate-lods must be an integer from 0 to 8.');
+  }
+  if (![256, 512, 1024, 2048, 4096, 8192].includes(opts.maxTextureSize)) {
+    program.error('--max-texture-size must be one of 256, 512, 1024, 2048, 4096, or 8192.');
+  }
+  if (!['y-up', 'z-up'].includes(opts.axis)) {
+    program.error('--axis must be either y-up or z-up.');
+  }
+  if (!['auto', 'unity', 'unreal', 'godot'].includes(opts.targetEngine)) {
+    program.error('--target-engine must be one of auto, unity, unreal, or godot.');
+  }
+  if (!['all', 'skeletal', 'none'].includes(opts.animation)) {
+    program.error('--animation must be one of all, skeletal, or none.');
+  }
+}
+
+validateOptions();
+
 interface FileJob {
   inputPath: string;
   outputPath: string;
   name: string;
-  bytes: number;
 }
 
 interface JobResult {
@@ -123,8 +157,35 @@ function makeJob(inputPath: string): FileJob {
     inputPath,
     outputPath: join(outputDir, `${base}.fbx`),
     name: basename(inputPath),
-    bytes: 0,
   };
+}
+
+function assertUniqueOutputs(jobs: FileJob[]): void {
+  const seen = new Map<string, string>();
+  for (const job of jobs) {
+    const outputKey = resolve(job.outputPath).toLowerCase();
+    const previous = seen.get(outputKey);
+    if (previous) {
+      program.error(
+        `Output collision: "${previous}" and "${job.inputPath}" both map to "${job.outputPath}".`,
+      );
+    }
+    seen.set(outputKey, job.inputPath);
+  }
+
+  if (opts.zip) {
+    const zipEntries = new Map<string, string>();
+    for (const job of jobs) {
+      const entry = basename(job.outputPath).toLowerCase();
+      const previous = zipEntries.get(entry);
+      if (previous) {
+        program.error(
+          `Zip entry collision: "${previous}" and "${job.inputPath}" both map to "${basename(job.outputPath)}".`,
+        );
+      }
+      zipEntries.set(entry, job.inputPath);
+    }
+  }
 }
 
 async function runInline(job: FileJob, index: number, total: number): Promise<JobResult> {
@@ -220,6 +281,7 @@ async function main() {
     console.error('No .glb/.gltf files found.');
     process.exit(1);
   }
+  assertUniqueOutputs(jobs);
 
   if (opts.output) await mkdir(resolve(opts.output), { recursive: true });
 
@@ -227,13 +289,12 @@ async function main() {
 
   console.error(`Converting ${jobs.length} file(s) with parallelism ${parallel}…`);
 
-  const results: JobResult[] = [];
+  const results: JobResult[] = new Array(jobs.length);
   let cursor = 0;
   async function worker() {
     while (cursor < jobs.length) {
       const i = cursor++;
-      const r = await runInline(jobs[i], i, jobs.length);
-      results.push(r);
+      results[i] = await runInline(jobs[i], i, jobs.length);
     }
   }
   await Promise.all(Array.from({ length: Math.min(parallel, jobs.length) }, worker));
@@ -248,7 +309,7 @@ async function main() {
       }
     }
     const buf = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
-    const zipPath = (opts.output ?? process.cwd()) + '/gltf-to-fbx.zip';
+    const zipPath = join(resolve(opts.output ?? process.cwd()), 'gltf-to-fbx.zip');
     await writeFile(zipPath, buf);
     console.error(`  → ${zipPath}`);
   }
@@ -259,7 +320,9 @@ async function main() {
   console.error('Summary:');
   for (const r of results) {
     if (r.ok) {
-      console.error(`  ✓ ${r.job.name}  →  ${basename(r.job.outputPath)}  (${r.durationMs.toFixed(0)} ms)`);
+      console.error(
+        `  ✓ ${r.job.name}  →  ${basename(r.job.outputPath)}  (${r.durationMs.toFixed(0)} ms)`,
+      );
     } else {
       console.error(`  ✗ ${r.job.name}  ${r.error?.name ?? ''}: ${r.error?.message ?? ''}`);
     }

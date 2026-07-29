@@ -36,6 +36,7 @@
     "watlas": "^1.0.1"
   },
   "devDependencies": {
+    "@eslint/js": "^9.16.0",
     "@gltf-transform/core": "^4.1.1",
     "@types/node": "^22.10.0",
     "@types/three": "^0.169.0",

@@ -35,6 +35,17 @@ export { optimizeGltf, type OptimizeResult, type OptimizeChange } from './optimi
 
 const DEFAULT_MAX_INPUT_BYTES = 200 * 1024 * 1024; // 200 MB
 
+function maxInputBytes(): number {
+  // `process` is undefined in the browser; guard the env-var lookup.
+  const configuredMb =
+    typeof process !== 'undefined' && process.env ? process.env.G2F_MAX_FILE_MB : undefined;
+  if (configuredMb === undefined) return DEFAULT_MAX_INPUT_BYTES;
+  const parsedMb = Number(configuredMb);
+  return Number.isFinite(parsedMb) && parsedMb >= 0
+    ? parsedMb * 1024 * 1024
+    : DEFAULT_MAX_INPUT_BYTES;
+}
+
 function suggestFilename(name: string): string {
   const base = name.replace(/\.(glb|gltf)$/i, '');
   return `${base}.fbx`;
@@ -69,10 +80,7 @@ export async function convertGltfToFbx(
   const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
   const inputBytes = bytes.byteLength;
 
-  // `process` is undefined in the browser; guard the env-var lookup.
-  const envMb =
-    typeof process !== 'undefined' && process.env ? process.env.G2F_MAX_FILE_MB : undefined;
-  const maxBytes = Number(envMb ?? DEFAULT_MAX_INPUT_BYTES / 1024 / 1024) * 1024 * 1024;
+  const maxBytes = maxInputBytes();
   if (inputBytes > maxBytes) {
     throw new InputTooLargeError(inputBytes, maxBytes);
   }
@@ -127,6 +135,8 @@ export interface ConvertBatchOptions extends ConvertOptions {
   maxConcurrency?: number;
 }
 
+type IndexedBatchResult = { ok: true; result: FbxResult } | { ok: false; failure: BatchFailure };
+
 /**
  * Bulk convert. Concurrency-capped `Promise.all`-style loop.
  * Works in both Node and the browser.
@@ -136,19 +146,11 @@ export async function convertBatch(
   options: ConvertBatchOptions = {},
   onItemProgress?: (itemIndex: number, phase: string, pct: number) => void,
 ): Promise<BatchResult> {
-  const concurrency = Math.max(1, Math.min(8, options.maxConcurrency ?? 4));
-  const succeeded: FbxResult[] = [];
-  const failed: BatchFailure[] = [];
-  // Map suggested output filename -> input index. The final sort uses
-  // this to restore input order in `succeeded` and `failed` regardless
-  // of completion order.
-  const orderByOutputName = new Map<string, number>();
-  const orderByInputName = new Map<string, number>();
-  items.forEach((it, i) => {
-    orderByInputName.set(it.name, i);
-    const base = it.name.replace(/\.(glb|gltf)$/i, '');
-    orderByOutputName.set(`${base}.fbx`, i);
-  });
+  const requestedConcurrency = options.maxConcurrency ?? 4;
+  const concurrency = Number.isFinite(requestedConcurrency)
+    ? Math.max(1, Math.min(8, Math.floor(requestedConcurrency)))
+    : 4;
+  const results: Array<IndexedBatchResult | undefined> = new Array(items.length);
 
   let cursor = 0;
   async function worker() {
@@ -161,13 +163,16 @@ export async function convertBatch(
           onProgress: (phase, pct) => onItemProgress?.(idx, phase, pct),
         };
         const result = await convertGltfToFbx(item.data, { ...wrapped, name: item.name });
-        succeeded.push(result);
+        results[idx] = { ok: true, result };
       } catch (err) {
         const e = err as { name?: string; message?: string };
-        failed.push({
-          name: item.name,
-          error: { name: e.name ?? 'Error', message: e.message ?? String(err) },
-        });
+        results[idx] = {
+          ok: false,
+          failure: {
+            name: item.name,
+            error: { name: e.name ?? 'Error', message: e.message ?? String(err) },
+          },
+        };
       }
     }
   }
@@ -175,16 +180,15 @@ export async function convertBatch(
   const workers = Array.from({ length: Math.min(concurrency, items.length) }, worker);
   await Promise.all(workers);
 
-  // Stable order: succeeded/failed in input order
-  succeeded.sort((a, b) => {
-    const ai = orderByOutputName.get(a.filename) ?? orderByInputName.get(a.filename) ?? 0;
-    const bi = orderByOutputName.get(b.filename) ?? orderByInputName.get(b.filename) ?? 0;
-    return ai - bi;
-  });
-  failed.sort((a, b) => {
-    const ai = orderByInputName.get(a.name) ?? 0;
-    const bi = orderByInputName.get(b.name) ?? 0;
-    return ai - bi;
-  });
+  // Each worker writes into its input slot, so duplicate filenames are safe
+  // and no completion-order sort or name-based lookup is needed.
+  const succeeded: FbxResult[] = [];
+  const failed: BatchFailure[] = [];
+  for (let index = 0; index < results.length; index++) {
+    const result = results[index];
+    if (!result) continue;
+    if (result.ok) succeeded.push(result.result);
+    else failed.push(result.failure);
+  }
   return { succeeded, failed };
 }

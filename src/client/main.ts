@@ -100,6 +100,7 @@ interface FileRow {
 }
 const fileRows: FileRow[] = [];
 let activeId: string | null = null;
+let outputPreviewRequest = 0;
 
 // Dropzone
 createDropzone(document.body).onFiles((files) => addFiles(files));
@@ -131,19 +132,21 @@ fileInput.addEventListener('change', () => {
 async function addFiles(files: File[]) {
   if (files.length === 0) return;
   queueHost.hidden = false;
+  const added: FileRow[] = [];
   for (const f of files) {
     const row = queue.add(f);
-    fileRows.push({ id: row.id, file: f });
+    const entry = { id: row.id, file: f };
+    fileRows.push(entry);
+    added.push(entry);
   }
   // Auto-focus the last added file so the user sees a preview right away.
-  const lastId = fileRows[fileRows.length - 1].id;
+  const lastId = added[added.length - 1].id;
   focusRow(lastId);
   // Kick off inspection in the background — the queue row will
   // update with metadata as soon as it's ready.
-  for (const f of files) {
-    const entry = fileRows.find((candidate) => candidate.file === f);
-    if (entry && !entry.inspectPromise) {
-      trackInspection(entry, f, inspectOne(f));
+  for (const entry of added) {
+    if (!entry.inspectPromise) {
+      trackInspection(entry, entry.file, inspectOne(entry.file));
     }
   }
 }
@@ -165,6 +168,7 @@ function trackInspection(
 }
 
 function resetOutputPreview() {
+  outputPreviewRequest++;
   outputViewer.clear();
   outputViewer.setAxisLock(null);
   outputViewer.setWireframe(false);
@@ -234,7 +238,7 @@ async function previewInput(entry: FileRow, file: File): Promise<InspectResult> 
         try {
           const { inspectScene } = await import('@core');
           const info = inspectScene(gltf.scene, gltf.animations);
-          if (entry.file === file) {
+          if (entry.file === file && activeId === entry.id) {
             inputEmpty.hidden = true;
             inputCanvas.hidden = false;
             inputViewer.setScene(gltf.scene);
@@ -246,7 +250,9 @@ async function previewInput(entry: FileRow, file: File): Promise<InspectResult> 
       },
       (err) => {
         const error = err instanceof Error ? err : new Error(err?.message ?? 'unknown error');
-        toast(`Preview failed: ${error.message}`, 'err');
+        if (entry.file === file && activeId === entry.id) {
+          toast(`Preview failed: ${error.message}`, 'err');
+        }
         reject(error);
       },
     );
@@ -285,6 +291,7 @@ function handleLodsForScene(scene: unknown) {
 }
 
 async function previewFbx(result: FbxResult) {
+  const request = ++outputPreviewRequest;
   outputEmpty.hidden = true;
   outputCanvas.hidden = false;
   try {
@@ -303,17 +310,20 @@ async function previewFbx(result: FbxResult) {
       ab,
       '',
       (gltf) => {
+        if (request !== outputPreviewRequest) return;
         outputViewer.setScene(gltf.scene);
         showOutputLabel(`Converted FBX · ${result.filename}`);
         handleLodsForScene(gltf.scene);
       },
       (err) => {
+        if (request !== outputPreviewRequest) return;
         outputEmpty.hidden = false;
         outputCanvas.hidden = true;
         toast(`Preview failed: ${err?.message ?? 'unknown error'}`, 'err');
       },
     );
   } catch (err) {
+    if (request !== outputPreviewRequest) return;
     outputEmpty.hidden = false;
     outputCanvas.hidden = true;
     const msg = (err as Error)?.message ?? String(err);
@@ -323,6 +333,7 @@ async function previewFbx(result: FbxResult) {
 
 // Preview a GLB (the optimized one) directly without going through FBX.
 async function previewGlb(glb: Uint8Array, label: string) {
+  const request = ++outputPreviewRequest;
   outputEmpty.hidden = true;
   outputCanvas.hidden = false;
   try {
@@ -339,15 +350,18 @@ async function previewGlb(glb: Uint8Array, label: string) {
         ab,
         '',
         (g) => {
-          outputViewer.setScene(g.scene);
-          showOutputLabel(label);
-          handleLodsForScene(g.scene);
+          if (request === outputPreviewRequest) {
+            outputViewer.setScene(g.scene);
+            showOutputLabel(label);
+            handleLodsForScene(g.scene);
+          }
           resolve();
         },
         (err) => reject(err instanceof Error ? err : new Error(err?.message ?? 'unknown error')),
       );
     });
   } catch (err) {
+    if (request !== outputPreviewRequest) return;
     outputEmpty.hidden = false;
     outputCanvas.hidden = true;
     toast(`Preview failed: ${(err as Error).message}`, 'err');
@@ -582,6 +596,7 @@ downloadAllBtn.addEventListener('click', () => downloadAll());
 previewOptBtn.addEventListener('click', () => previewOptimization());
 
 function clearAll() {
+  outputPreviewRequest++;
   queue.clear();
   fileRows.length = 0;
   activeId = null;
@@ -699,9 +714,9 @@ async function convertAll() {
     baseOpts.generateLODs! > 0 ||
     (baseOpts.maxTextureSize ?? 2048) < 8192;
 
-  // Phase 1: convert in sequence, max 4 concurrent.
-  const inFlight: Promise<void>[] = [];
-  const sema = { n: 0, max: 4 };
+  // Convert through a fixed worker pool. This bounds memory usage without
+  // creating one polling timer per queued file.
+  const maxConcurrency = 4;
 
   // Track whether we've auto-previewed any result yet so we only preview
   // the first successful conversion (subsequent rows can be previewed by
@@ -711,25 +726,13 @@ async function convertAll() {
   async function runOne(id: string) {
     const entry = fileRows.find((e) => e.id === id);
     if (!entry) return;
-    if (sema.n >= sema.max) {
-      await new Promise<void>((r) => {
-        const i = setInterval(() => {
-          if (sema.n < sema.max) {
-            clearInterval(i);
-            r();
-          }
-        }, 20);
-      });
-    }
-    sema.n++;
     try {
       queue.update(entry.id, { status: 'converting', progress: 0 });
       updateBatchProgress(entry.id, 'parse', 0);
       let convertBuf: ArrayBuffer | Uint8Array = await entry.file.arrayBuffer();
-      let beforeStats: InspectResult | undefined = entry.file ? undefined : undefined;
       // capture pre-stats from the row's inspect field if present
       const row = queue.list().find((r) => r.id === entry.id);
-      beforeStats = row?.inspect;
+      const beforeStats: InspectResult | undefined = row?.inspect;
       if (hasOptimization) {
         queue.update(entry.id, { phase: 'optimizing' });
         const opt = await optimizeGltf(convertBuf, {
@@ -766,15 +769,19 @@ async function convertAll() {
       queue.update(entry.id, { status: 'error', errorMessage: e.message ?? 'Failed' });
       taskProgress.set(entry.id, 1);
       toast(`${entry.file.name}: ${e.message ?? 'conversion failed'}`, 'err');
-    } finally {
-      sema.n--;
     }
   }
 
-  for (const row of targets) {
-    inFlight.push(runOne(row.id));
+  let nextTarget = 0;
+  async function worker() {
+    while (nextTarget < targets.length) {
+      const target = targets[nextTarget++];
+      await runOne(target.id);
+    }
   }
-  await Promise.all(inFlight);
+  await Promise.all(
+    Array.from({ length: Math.min(maxConcurrency, targets.length) }, () => worker()),
+  );
 
   convertAllBtn.disabled = false;
   clearBtn.disabled = false;

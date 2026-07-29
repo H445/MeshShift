@@ -18,14 +18,14 @@ assimp is the industry-standard 3D format converter; the WebAssembly port is loa
 
 ## Features
 
-| Asset          | Support                                                                |
-| -------------- | ---------------------------------------------------------------------- |
-| Meshes         | position, normal, UV0-1, vertex color, tangents                       |
-| PBR materials  | baseColor, metallic, roughness, normal, emissive, occlusion            |
-| Textures       | embedded inside the FBX (toggle to reference by path)                  |
-| Skeletal anim  | bone hierarchy + skin weights                                          |
-| Animation      | partially supported (some glTF animation channels may not round-trip)  |
-| Bulk convert   | web multi-file (with zip download) + CLI recursive directory walk      |
+| Asset         | Support                                                               |
+| ------------- | --------------------------------------------------------------------- |
+| Meshes        | position, normal, UV0-1, vertex color, tangents                       |
+| PBR materials | baseColor, metallic, roughness, normal, emissive, occlusion           |
+| Textures      | embedded inside the FBX (toggle to reference by path)                 |
+| Skeletal anim | bone hierarchy + skin weights                                         |
+| Animation     | partially supported (some glTF animation channels may not round-trip) |
+| Bulk convert  | web multi-file (with zip download) + CLI recursive directory walk     |
 
 ## Quick start
 
@@ -103,6 +103,7 @@ The vendored assimpjs files live in `src/client/public/` and are copied to `dist
 
 ## Limitations (v1)
 
+- **External `.gltf` sidecars:** `.gltf` JSON must be self-contained with data URIs; use `.glb` when buffers or textures are separate files.
 - **Draco-compressed GLBs:** not supported (decompress with `gltf-transform` first).
 - **KTX2 / Basis textures:** not supported.
 - **FBX → GLTF:** not supported (one-way only).
@@ -112,7 +113,7 @@ The vendored assimpjs files live in `src/client/public/` and are copied to `dist
 ## Testing
 
 ```bash
-pnpm test               # Vitest, 13 tests, ~1s
+pnpm test               # Vitest test suite
 ```
 
 The test suite covers: single-file conversion, bulk conversion with partial failures, error cases (oversized input, garbage input), progress callbacks, and round-trip validation (FBX → assjson via the same assimp engine).

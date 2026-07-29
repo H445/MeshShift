@@ -22,7 +22,12 @@ let cached: Promise<AssimpInstance> | null = null;
 
 export function getAssimp(): Promise<AssimpInstance> {
   if (cached) return cached;
-  cached = isBrowser ? loadInBrowser() : loadInNode();
+  cached = (isBrowser ? loadInBrowser() : loadInNode()).catch((error: unknown) => {
+    // A transient script/network failure should not permanently poison the
+    // process-wide cache. The next conversion gets a clean retry.
+    cached = null;
+    throw error;
+  });
   return cached;
 }
 
@@ -111,10 +116,7 @@ async function loadInNode(): Promise<AssimpInstance> {
   const { jsUrl, wasmUrl } = resolveVendoredPaths();
   const jsPath = fileURLToPath(jsUrl);
   const wasmPath = fileURLToPath(wasmUrl);
-  const [code, wasmBytes] = await Promise.all([
-    readFile(jsPath, 'utf8'),
-    readFile(wasmPath),
-  ]);
+  const [code, wasmBytes] = await Promise.all([readFile(jsPath, 'utf8'), readFile(wasmPath)]);
 
   const fakeModule: { exports: unknown } = { exports: {} };
   const sandbox: Record<string, unknown> = {

@@ -8,7 +8,7 @@ import { makeProgress } from './progress.js';
 import { ExportError } from './errors.js';
 
 export async function exportFbx(
-  glbBytes: Uint8Array,
+  sourceBytes: Uint8Array,
   sourceName: string,
   options?: ConvertOptions,
 ): Promise<Uint8Array> {
@@ -18,8 +18,10 @@ export async function exportFbx(
   const ajs = await getAssimp();
   const fileList = new ajs.FileList();
   // The name matters — assimp uses the extension to pick the importer.
-  const name = sourceName.toLowerCase().endsWith('.glb') ? sourceName : `${sourceName}.glb`;
-  fileList.AddFile(name, glbBytes);
+  const lowerName = sourceName.toLowerCase();
+  const name =
+    lowerName.endsWith('.glb') || lowerName.endsWith('.gltf') ? sourceName : `${sourceName}.glb`;
+  fileList.AddFile(name, sourceBytes);
 
   progress('export', 0.5);
   const result = ajs.ConvertFileList(fileList, 'fbx');
