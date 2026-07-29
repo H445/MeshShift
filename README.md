@@ -1,6 +1,6 @@
 # ModelShift
 
-ModelShift is an offline 3D asset converter with a static web UI, a Node.js CLI, and a reusable TypeScript API. Conversion happens locally through the bundled Assimp WebAssembly runtime; no model is uploaded to a server.
+ModelShift is an offline 3D asset converter with a local web UI, a Node.js CLI, and a reusable TypeScript API. Conversion happens locally through the bundled Assimp WebAssembly runtime; no model is uploaded to a remote service.
 
 ## Formats
 
@@ -35,7 +35,7 @@ Windows PowerShell:
 .\start.ps1
 ```
 
-Both launchers start the local Vite development server at `http://localhost:5173/`. Additional Vite options are forwarded unchanged:
+Both launchers start the local Vite development server at `http://localhost:5173/`. The server exposes a project-scoped endpoint that writes completed browser exports to `exports/`. Additional Vite options are forwarded unchanged:
 
 ```sh
 sh ./start.sh --port 5180 --host 0.0.0.0 --open
@@ -53,7 +53,13 @@ Build both surfaces:
 pnpm build
 ```
 
-The production web app is written to `dist/client/`. The CLI bundle is `dist/cli/modelshift.mjs`.
+The production web app is written to `dist/client/`. The CLI bundle is `dist/cli/modelshift.mjs`. Use `pnpm preview` when testing the production build locally so the `exports/` writer remains available.
+
+## Export destination
+
+The web app saves generated files directly under the repository’s `exports/` directory instead of using the browser Downloads folder. A single conversion writes its output and companion files at the root of `exports/`. **Save all** groups each converted asset into its own subdirectory to prevent companion-file name collisions.
+
+The local writer accepts only relative paths beneath `exports/`, rejects traversal and unsafe path segments, and overwrites an older file with the same path. Generated files are ignored by Git; `exports/.gitkeep` retains the empty directory in a checkout.
 
 ## CLI
 
@@ -123,12 +129,14 @@ result.warnings;
 ## Architecture
 
 ```text
-CLI ───────────┐
-               ├─ convertAsset() ─ Assimp WASM ─ native FBX/glTF/GLB writers
-Static web UI ─┘                    └──────────── local OBJ/STL/PLY/DAE writers
+CLI ──────────┐
+              ├─ convertAsset() ─ Assimp WASM ─ native FBX/glTF/GLB writers
+Local web UI ─┘                    └──────────── local OBJ/STL/PLY/DAE writers
+      │
+      └─ project-scoped writer ── exports/
 ```
 
-All import paths are normalized through Assimp. The browser previews every supported source and result by generating a temporary GLB and loading it with three.js. Multi-file outputs download as ZIP archives.
+All import paths are normalized through Assimp. The browser previews every supported source and result by generating a temporary GLB and loading it with three.js. Multi-file outputs retain their companion files in `exports/`.
 
 ## How LOD generation works
 
@@ -166,6 +174,7 @@ Set `MODELSHIFT_MAX_FILE_MB` to change the default 200 MB aggregate input limit.
 - Assimp has partial support for some animation/material combinations; verify production assets in the target engine or DCC.
 - Draco and KTX2/Basis inputs are not decoded by the current preprocessing path.
 - USD/USDZ are not exposed because this bundled Assimp build does not provide a verified import/export path for them.
+- Direct browser saving requires the local ModelShift dev or preview server; a separately hosted static build cannot write to the repository filesystem.
 
 ## License
 

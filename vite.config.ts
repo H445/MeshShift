@@ -1,10 +1,25 @@
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createExportMiddleware } from './src/server/exportServer.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const exportRoot = resolve(__dirname, 'exports');
+
+function modelShiftExportPlugin(): Plugin {
+  return {
+    name: 'modelshift-export-store',
+    configureServer(server) {
+      server.middlewares.use(createExportMiddleware(exportRoot));
+    },
+    configurePreviewServer(server) {
+      server.middlewares.use(createExportMiddleware(exportRoot));
+    },
+  };
+}
 
 export default defineConfig({
+  plugins: [modelShiftExportPlugin()],
   root: resolve(__dirname, 'src/client'),
   publicDir: resolve(__dirname, 'src/client/public'),
   resolve: {

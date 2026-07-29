@@ -1,7 +1,7 @@
 /**
  * Queue UI — list of files in the bottom panel.
  * Renders rows with per-file status, progress, checkbox (for batch opt-in),
- * click-to-preview, and download button.
+ * click-to-preview, and save-to-exports button.
  */
 import type { ConvertResult, InspectResult } from '../../shared/options.js';
 
@@ -40,14 +40,14 @@ export interface QueueHandle {
   selectionCounts(): { selected: number; total: number };
   onConvertAll(cb: () => void): void;
   onClear(cb: () => void): void;
-  onDownloadAll(cb: () => void): void;
-  onDownloadOne(cb: (id: string) => void): void;
+  onSaveAll(cb: () => void): void;
+  onSaveOne(cb: (id: string) => void): void;
   onPreviewOne(cb: (id: string) => void): void;
   onRemoveOne(cb: (id: string) => void): void;
   onRowClick(cb: (id: string) => void): void;
   onSelectionChange(cb: (counts: { selected: number; total: number }) => void): void;
   onSelectAll(cb: (selected: boolean) => void): void;
-  showDownloadAllButton(show: boolean): void;
+  showSaveAllButton(show: boolean): void;
   onCountChange(cb: (n: number) => void): void;
 }
 
@@ -69,8 +69,8 @@ export function createQueue(_host: HTMLElement, listEl: HTMLElement): QueueHandl
   const handlers = {
     convertAll: () => {},
     clear: () => {},
-    downloadAll: () => {},
-    downloadOne: (_id: string) => {},
+    saveAll: () => {},
+    saveOne: (_id: string) => {},
     previewOne: (_id: string) => {},
     removeOne: (_id: string) => {},
     rowClick: (_id: string) => {},
@@ -121,9 +121,10 @@ export function createQueue(_host: HTMLElement, listEl: HTMLElement): QueueHandl
       if (r.inspect) {
         if (r.inspect.triangles > 0) parts.push(formatTriangles(r.inspect.triangles));
         if (r.inspect.textures > 0) {
-          const texStr = r.inspect.textureMaxSize > 0
-            ? `${r.inspect.textures} tex (max ${r.inspect.textureMaxSize}px)`
-            : `${r.inspect.textures} tex`;
+          const texStr =
+            r.inspect.textureMaxSize > 0
+              ? `${r.inspect.textures} tex (max ${r.inspect.textureMaxSize}px)`
+              : `${r.inspect.textures} tex`;
           parts.push(texStr);
         }
         if (r.inspect.materials > 0) parts.push(`${r.inspect.materials} mats`);
@@ -152,10 +153,15 @@ export function createQueue(_host: HTMLElement, listEl: HTMLElement): QueueHandl
 
       const status = document.createElement('div');
       const statusText =
-        r.status === 'done' ? 'Done' :
-        r.status === 'error' ? 'Error' :
-        r.status === 'converting' ? 'Converting' :
-        r.selected ? 'Queued' : 'Skipped';
+        r.status === 'done'
+          ? 'Done'
+          : r.status === 'error'
+            ? 'Error'
+            : r.status === 'converting'
+              ? 'Converting'
+              : r.selected
+                ? 'Queued'
+                : 'Skipped';
       status.className = `queue-item-status ${r.status === 'done' ? 'ok' : r.status === 'error' ? 'err' : r.status === 'converting' ? 'working' : r.selected ? '' : 'skipped'}`;
       status.textContent = statusText;
 
@@ -182,15 +188,16 @@ export function createQueue(_host: HTMLElement, listEl: HTMLElement): QueueHandl
           handlers.previewOne(r.id);
         });
 
-        const dl = document.createElement('button');
-        dl.className = 'btn btn-primary';
-        dl.textContent = 'Download';
-        dl.addEventListener('click', (e) => {
+        const save = document.createElement('button');
+        save.className = 'btn btn-primary';
+        save.textContent = 'Save';
+        save.title = 'Save converted files to the project exports folder';
+        save.addEventListener('click', (e) => {
           e.stopPropagation();
-          handlers.downloadOne(r.id);
+          handlers.saveOne(r.id);
         });
 
-        action.append(preview, dl);
+        action.append(preview, save);
       } else if (r.status === 'error') {
         const err = document.createElement('span');
         err.className = 'queue-item-error';
@@ -293,23 +300,41 @@ export function createQueue(_host: HTMLElement, listEl: HTMLElement): QueueHandl
     selectionCounts() {
       return selectionCounts();
     },
-    onConvertAll(cb) { handlers.convertAll = cb; },
-    onClear(cb) { handlers.clear = cb; },
-    onDownloadAll(cb) { handlers.downloadAll = cb; },
-    onDownloadOne(cb) { handlers.downloadOne = cb; },
-    onPreviewOne(cb) { handlers.previewOne = cb; },
-    onRemoveOne(cb) { handlers.removeOne = cb; },
-    onRowClick(cb) { handlers.rowClick = cb; },
+    onConvertAll(cb) {
+      handlers.convertAll = cb;
+    },
+    onClear(cb) {
+      handlers.clear = cb;
+    },
+    onSaveAll(cb) {
+      handlers.saveAll = cb;
+    },
+    onSaveOne(cb) {
+      handlers.saveOne = cb;
+    },
+    onPreviewOne(cb) {
+      handlers.previewOne = cb;
+    },
+    onRemoveOne(cb) {
+      handlers.removeOne = cb;
+    },
+    onRowClick(cb) {
+      handlers.rowClick = cb;
+    },
     onSelectionChange(cb) {
       selectionCb = cb;
       // Fire immediately so the caller can sync the master checkbox + button label.
       cb(selectionCounts());
     },
-    onSelectAll(cb) { handlers.selectAll = cb; },
-    showDownloadAllButton(show) {
-      const btn = document.getElementById('download-all-btn') as HTMLButtonElement | null;
+    onSelectAll(cb) {
+      handlers.selectAll = cb;
+    },
+    showSaveAllButton(show) {
+      const btn = document.getElementById('save-all-btn') as HTMLButtonElement | null;
       if (btn) btn.hidden = !show;
     },
-    onCountChange(cb) { countCb = cb; },
+    onCountChange(cb) {
+      countCb = cb;
+    },
   };
 }

@@ -8,7 +8,7 @@ import { createSettings } from './ui/settings.js';
 import { createProfiles } from './ui/profiles.js';
 import { createViewer, type ViewerAxis } from './ui/viewer.js';
 import { progressToast, toast } from './ui/toast.js';
-import { downloadBlob, makeOutputZip } from './lib/zip.js';
+import { saveResultsToExports, type SavedExport } from './lib/export-store.js';
 import { detectLods, selectLod, renderLodSelector, hideLodSelector } from './ui/lod.js';
 import type { AssetFile, ConvertPhase, ConvertResult, InspectResult } from '../shared/options.js';
 import type { OptimizeChange } from '../core/optimize.js';
@@ -28,7 +28,7 @@ const queueList = document.getElementById('queue-list') as HTMLElement;
 const queueCount = document.getElementById('queue-count') as HTMLElement;
 const convertAllBtn = document.getElementById('convert-all-btn') as HTMLButtonElement;
 const clearBtn = document.getElementById('clear-btn') as HTMLButtonElement;
-const downloadAllBtn = document.getElementById('download-all-btn') as HTMLButtonElement;
+const saveAllBtn = document.getElementById('save-all-btn') as HTMLButtonElement;
 const masterCheck = document.getElementById('master-check') as HTMLInputElement | null;
 const statsPanel = document.getElementById('stats-panel') as HTMLElement;
 const statsGrid = document.getElementById('stats-grid') as HTMLElement;
@@ -517,16 +517,17 @@ function hideStats() {
 // Queue controls
 queue.onConvertAll(() => convertAll());
 queue.onClear(() => clearAll());
-queue.onDownloadOne(async (id) => {
+queue.onSaveOne(async (id) => {
   const r = queue.list().find((row) => row.id === id)?.result;
   if (!r) return;
-  if (r.files.length === 1) {
-    downloadBlob(new Blob([r.data.slice().buffer]), r.filename);
-  } else {
-    downloadBlob(await makeOutputZip([r]), `${r.filename.replace(/\.[^.]+$/, '')}.zip`);
+  try {
+    const saved = await saveResultsToExports([r]);
+    toast(savedExportMessage(saved), 'ok');
+  } catch (error) {
+    toast((error as Error).message, 'err');
   }
 });
-queue.onDownloadAll(() => downloadAll());
+queue.onSaveAll(() => saveAll());
 queue.onPreviewOne((id) => {
   const r = queue.list().find((row) => row.id === id)?.result;
   if (r) previewConverted(r);
@@ -644,7 +645,7 @@ bindAutoRotateButton(autoRotateOutputBtn, outputViewer);
 
 clearBtn.addEventListener('click', () => clearAll());
 convertAllBtn.addEventListener('click', () => convertAll());
-downloadAllBtn.addEventListener('click', () => downloadAll());
+saveAllBtn.addEventListener('click', () => saveAll());
 previewOptBtn.addEventListener('click', () => previewOptimization());
 
 function clearAll() {
@@ -670,7 +671,7 @@ function clearAll() {
   showOutputLabel('Converted preview');
   hideStats();
   hideLodSelector(lodSelector, lodSliderHost);
-  queue.showDownloadAllButton(false);
+  queue.showSaveAllButton(false);
 }
 
 /**
@@ -856,7 +857,7 @@ async function convertAll() {
 
   const succeeded = queue.list().filter((r) => r.status === 'done');
   if (succeeded.length > 1 || succeeded.some((row) => (row.result?.files.length ?? 0) > 1)) {
-    queue.showDownloadAllButton(true);
+    queue.showSaveAllButton(true);
   }
   const succeededTargets = targets.filter((row) =>
     queue.list().some((item) => item.id === row.id && item.status === 'done'),
@@ -873,19 +874,22 @@ async function convertAll() {
   }
 }
 
-async function downloadAll() {
+function savedExportMessage(saved: SavedExport[]): string {
+  return saved.length === 1 ? `Saved ${saved[0].path}` : `Saved ${saved.length} files to exports/`;
+}
+
+async function saveAll() {
   const items = queue.list().filter((r) => r.status === 'done' && r.result);
   if (items.length === 0) return;
-  const results = items.map((r) => r.result!);
-  const fileCount = results.reduce((sum, result) => sum + result.files.length, 0);
-  const blob =
-    fileCount === 1 ? new Blob([results[0].data.slice().buffer]) : await makeOutputZip(results);
-  const name = fileCount === 1 ? results[0].filename : `modelshift-${Date.now()}.zip`;
-  downloadBlob(blob, name);
-  toast(
-    fileCount === 1 ? 'Downloaded converted asset' : `Downloaded ${fileCount} files as ZIP`,
-    'ok',
-  );
+  saveAllBtn.disabled = true;
+  try {
+    const saved = await saveResultsToExports(items.map((r) => r.result!));
+    toast(savedExportMessage(saved), 'ok');
+  } catch (error) {
+    toast((error as Error).message, 'err');
+  } finally {
+    saveAllBtn.disabled = false;
+  }
 }
 
 // Keyboard: Esc closes settings
