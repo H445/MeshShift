@@ -47,7 +47,11 @@ function loadInBrowser(): Promise<AssimpInstance> {
   return (async () => {
     const g = globalThis as unknown as { assimpjs?: Factory };
     if (typeof g.assimpjs !== 'function') {
-      if (typeof document !== 'undefined') {
+      if (
+        typeof document !== 'undefined' &&
+        document.head &&
+        typeof document.head.appendChild === 'function'
+      ) {
         await loadScript('/assimpjs.js');
       } else {
         const response = await fetch('/assimpjs.js');

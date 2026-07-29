@@ -48,6 +48,11 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
   },
+  worker: {
+    // The model worker lazy-loads the conversion/optimization core. ES output
+    // supports the resulting worker chunks; Vite's IIFE default does not.
+    format: 'es',
+  },
   build: {
     outDir: resolve(__dirname, 'dist/client'),
     emptyOutDir: true,

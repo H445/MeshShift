@@ -7,17 +7,26 @@ import { createQueue } from './ui/queue.js';
 import { createSettings } from './ui/settings.js';
 import { createProfiles } from './ui/profiles.js';
 import { createViewer, type ViewerAxis } from './ui/viewer.js';
-import { progressToast, toast } from './ui/toast.js';
+import { toast } from './ui/toast.js';
 import { saveResultsToExports, type SavedExport } from './lib/export-store.js';
 import {
   cancelPreviewNormalizations,
+  convertInWorker,
   disposePreviewNormalizer,
+  normalizeForConversion,
   normalizePreview,
+  optimizeInWorker,
   type PreviewNormalized,
 } from './lib/preview-normalizer.js';
+import { optimizationOptionsKey, usesOptimization } from './lib/optimization-cache.js';
 import { detectLods, selectLod, renderLodSelector, hideLodSelector } from './ui/lod.js';
-import type { AssetFile, ConvertPhase, ConvertResult, InspectResult } from '../shared/options.js';
-import type { OptimizeChange } from '../core/optimize.js';
+import type {
+  AssetFile,
+  ConvertPhase,
+  ConvertResult,
+  InspectResult,
+} from '../shared/options.js';
+import type { OptimizeChange, OptimizeResult } from '../core/optimize.js';
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
 const inputCanvas = document.getElementById('canvas-input') as HTMLCanvasElement;
@@ -74,30 +83,6 @@ function readOptions() {
   return { ...settings.read(), ...profiles.read() };
 }
 
-const TASK_PHASE_RANGES: Record<ConvertPhase, [number, number]> = {
-  parse: [0, 0.08],
-  inspect: [0.92, 1],
-  optimize: [0.16, 0.72],
-  textures: [0.08, 0.16],
-  materials: [0.72, 0.76],
-  skeleton: [0.76, 0.8],
-  animation: [0.8, 0.84],
-  export: [0.84, 0.94],
-  post: [0.94, 1],
-};
-
-const TASK_PHASE_LABELS: Record<ConvertPhase, string> = {
-  parse: 'Reading source…',
-  inspect: 'Checking result…',
-  optimize: 'Optimizing geometry…',
-  textures: 'Processing textures…',
-  materials: 'Processing materials…',
-  skeleton: 'Processing skeleton…',
-  animation: 'Processing animation…',
-  export: 'Exporting…',
-  post: 'Finalizing…',
-};
-
 const OPTIMIZED_PREVIEW_PHASE_RANGES: Record<ConvertPhase, [number, number]> = {
   parse: [0, 0.1],
   textures: [0.1, 0.24],
@@ -131,6 +116,11 @@ interface FileRow {
   inspectPromise?: Promise<InspectResult>;
   /** Reuse the worker-normalized GLB when a row is focused again. */
   previewNormalizedPromise?: Promise<PreviewNormalized>;
+  /** Reuse an optimized GLB while its source and optimization settings match. */
+  optimizedPreview?: {
+    key: string;
+    result: OptimizeResult;
+  };
 }
 const fileRows: FileRow[] = [];
 let activeId: string | null = null;
@@ -302,6 +292,7 @@ function replaceActiveFiles(files: File[]) {
   entry.files = group.files;
   entry.inspectPromise = undefined;
   entry.previewNormalizedPromise = undefined;
+  entry.optimizedPreview = undefined;
   queue.update(entry.id, {
     name: group.primary.name,
     size: group.files.reduce((sum, file) => sum + file.size, 0),
@@ -350,9 +341,13 @@ function updateOutputLoading(request: number, pct: number, detail: string): void
   outputLoadingTrack.setAttribute('aria-valuenow', String(percent));
 }
 
-function beginOutputLoading(request: number, file: File): void {
-  outputLoadingTitle.textContent = `Generating optimized preview · ${file.name}`;
-  updateOutputLoading(request, 0, 'Preparing source model…');
+function beginOutputLoading(
+  request: number,
+  title: string,
+  detail = 'Preparing source model…',
+): void {
+  outputLoadingTitle.textContent = title;
+  updateOutputLoading(request, 0, detail);
 }
 
 function finishOutputLoading(request: number): void {
@@ -381,11 +376,12 @@ async function normalizedPreview(
   onReadProgress: (pct: number) => void,
   onWorkerProgress: (phase: ConvertPhase, pct: number) => void,
   onReuse: () => void,
+  normalizer: typeof normalizePreview = normalizePreview,
 ): Promise<PreviewNormalized> {
   if (!entry.previewNormalizedPromise) {
     entry.previewNormalizedPromise = (async () => {
       const files = await readAssetFiles(entry, onReadProgress);
-      return normalizePreview(files, file.name, onWorkerProgress);
+      return normalizer(files, file.name, onWorkerProgress);
     })().catch((error) => {
       entry.previewNormalizedPromise = undefined;
       throw error;
@@ -510,43 +506,42 @@ function handleLodsForScene(scene: unknown) {
 }
 
 async function previewConverted(result: ConvertResult) {
-  const request = ++outputPreviewRequest;
-  outputEmpty.hidden = true;
-  outputCanvas.hidden = false;
+  resetOutputPreview();
+  const request = outputPreviewRequest;
+  beginOutputLoading(
+    request,
+    `Loading converted preview · ${result.filename}`,
+    'Preparing converted files…',
+  );
+  let lastProgress = 0;
   try {
-    const { getAssimp } = await import('@core');
-    const ajs = await getAssimp();
-    const fl = new ajs.FileList();
-    for (const file of result.files) fl.AddFile(file.name, new Uint8Array(file.data));
-    const r = ajs.ConvertFileList(fl, 'glb2');
-    if (!r.IsSuccess() || r.FileCount() === 0) {
-      throw new Error(`assimp round-trip failed: ${r.GetErrorCode()}`);
-    }
-    const glb = r.GetFile(0).GetContent();
-    const ab = new ArrayBuffer(glb.byteLength);
-    new Uint8Array(ab).set(glb);
-    new GLTFLoader().parse(
-      ab,
-      '',
-      (gltf) => {
-        if (request !== outputPreviewRequest) return;
-        outputViewer.setScene(gltf.scene);
-        showOutputLabel(`Converted ${result.format.toUpperCase()} · ${result.filename}`);
-        handleLodsForScene(gltf.scene);
+    const normalized = await normalizeForConversion(
+      result.files,
+      result.filename,
+      (phase, pct) => {
+        const [progress, detail] = workerNormalizationProgress(phase, pct);
+        lastProgress = Math.max(lastProgress, 0.05 + progress * 0.87);
+        updateOutputLoading(request, lastProgress, detail);
       },
-      (err) => {
-        if (request !== outputPreviewRequest) return;
-        outputEmpty.hidden = false;
-        outputCanvas.hidden = true;
-        toast(`Preview failed: ${err?.message ?? 'unknown error'}`, 'err');
-      },
+      true,
     );
+    updateOutputLoading(request, 0.96, 'Parsing converted preview…');
+    await nextPaint();
+    await previewGlb(
+      normalized.data,
+      `Converted ${result.format.toUpperCase()} · ${result.filename}`,
+      request,
+    );
+    updateOutputLoading(request, 1, 'Converted preview ready');
+    await nextPaint();
   } catch (err) {
     if (request !== outputPreviewRequest) return;
     outputEmpty.hidden = false;
     outputCanvas.hidden = true;
     const msg = (err as Error)?.message ?? String(err);
     toast(`Converted preview failed: ${msg}`, 'err');
+  } finally {
+    finishOutputLoading(request);
   }
 }
 
@@ -870,7 +865,7 @@ async function generateOptimizedPreview() {
   // than the first and could crash the browser even on small assets.
   resetOutputPreview();
   const request = outputPreviewRequest;
-  beginOutputLoading(request, target.file);
+  beginOutputLoading(request, `Generating optimized preview · ${target.file.name}`);
   previewOptBtn.disabled = true;
   let lastProgress = 0;
   const updateProgress = (progress: number, detail: string) => {
@@ -885,7 +880,9 @@ async function generateOptimizedPreview() {
   };
 
   try {
-    const { optimizeGltf, inspectGltf } = await import('@core');
+    const { inspectGltf } = await import('@core');
+    const options = readOptions();
+    const cacheKey = optimizationOptionsKey(options);
     const normalized = await normalizedPreview(
       target,
       target.file,
@@ -910,18 +907,22 @@ async function generateOptimizedPreview() {
     assertCurrent();
     updateProgress(0.46, 'Source model ready');
 
-    const opts = {
-      ...readOptions(),
-      onProgress: (phase: ConvertPhase, pct: number) => {
+    let result: OptimizeResult;
+    if (target.optimizedPreview?.key === cacheKey) {
+      result = target.optimizedPreview.result;
+      updateProgress(0.97, 'Reusing generated optimized model…');
+    } else {
+      result = await optimizeInWorker(normalized.data, options, (phase, pct) => {
         const [start, end] = OPTIMIZED_PREVIEW_PHASE_RANGES[phase];
         const clamped = Math.max(0, Math.min(1, Number.isFinite(pct) ? pct : 0));
         updateProgress(
           0.46 + (start + (end - start) * clamped) * 0.51,
           OPTIMIZED_PREVIEW_PHASE_LABELS[phase],
         );
-      },
-    };
-    const result = await optimizeGltf(buf, opts);
+      });
+      assertCurrent();
+      target.optimizedPreview = { key: cacheKey, result };
+    }
     assertCurrent();
     updateProgress(0.98, 'Parsing optimized preview…');
     await nextPaint();
@@ -949,127 +950,176 @@ async function generateOptimizedPreview() {
   }
 }
 
+function workerExportProgress(phase: ConvertPhase, pct: number): [number, string] {
+  const progress = Math.max(0, Math.min(1, Number.isFinite(pct) ? pct : 0));
+  if (phase === 'parse') return [progress * 0.38, 'Reading prepared model…'];
+  if (phase === 'export') return [0.42 + progress * 0.53, 'Writing selected format…'];
+  if (phase === 'inspect') {
+    return [progress >= 1 ? 1 : 0.42, 'Validating export…'];
+  }
+  return [0.42, 'Preparing export…'];
+}
+
 async function convertAll() {
   const targets = queue.selectedForConvert();
   if (targets.length === 0) {
     toast('No files selected for conversion.', 'warn');
     return;
   }
+
+  resetOutputPreview();
+  const request = outputPreviewRequest;
+  const title =
+    targets.length === 1
+      ? `Converting · ${targets[0].name}`
+      : `Converting ${targets.length} models`;
+  beginOutputLoading(request, title, 'Preparing conversion queue…');
+
   convertAllBtn.disabled = true;
   clearBtn.disabled = true;
   previewOptBtn.disabled = true;
+  loadBtn.disabled = true;
+  addMoreBtn.disabled = true;
   if (masterCheck) masterCheck.disabled = true;
-  const task = progressToast(
-    targets.length === 1 ? `Converting · ${targets[0].name}` : `Converting ${targets.length} files`,
-  );
-  const taskProgress = new Map<string, number>(targets.map((row) => [row.id, 0]));
 
-  const updateBatchProgress = (id: string, phase: ConvertPhase, pct: number): void => {
-    const [start, end] = TASK_PHASE_RANGES[phase];
-    const clamped = Math.max(0, Math.min(1, Number.isFinite(pct) ? pct : 0));
-    taskProgress.set(id, start + (end - start) * clamped);
+  const options = readOptions();
+  const cacheKey = optimizationOptionsKey(options);
+  const shouldOptimize = usesOptimization(options);
+  const itemProgress = new Map<string, number>(targets.map((row) => [row.id, 0]));
+  const lastItemProgress = new Map<string, number>(targets.map((row) => [row.id, 0]));
+  let autoPreview:
+    | {
+        data: Uint8Array;
+        label: string;
+      }
+    | undefined;
+  let renderedOptimizationStats = false;
+
+  const updateItemProgress = (entry: FileRow, progress: number, detail: string): void => {
+    const monotonic = Math.max(lastItemProgress.get(entry.id) ?? 0, progress);
+    lastItemProgress.set(entry.id, monotonic);
+    itemProgress.set(entry.id, monotonic);
+    queue.update(entry.id, { progress: monotonic, phase: detail });
     const average =
-      Array.from(taskProgress.values()).reduce((sum, value) => sum + value, 0) /
-      Math.max(1, taskProgress.size);
-    task.update(average, `${TASK_PHASE_LABELS[phase]} (${Math.round(average * 100)}%)`);
+      Array.from(itemProgress.values()).reduce((sum, value) => sum + value, 0) /
+      Math.max(1, itemProgress.size);
+    const outputDetail = targets.length === 1 ? detail : `${entry.file.name} · ${detail}`;
+    updateOutputLoading(request, Math.min(0.99, average), outputDetail);
   };
 
-  // Dynamic import keeps the initial bundle small — assimpjs is only
-  // loaded when the user actually starts a conversion.
-  const { convertAsset, optimizeGltf } = await import('@core');
-
-  // Read settings once
-  const baseOpts = readOptions();
-  const hasOptimization =
-    baseOpts.maxTriangles! > 0 ||
-    baseOpts.mergeByMaterial === true ||
-    baseOpts.generateLODs! > 0 ||
-    (baseOpts.maxTextureSize ?? 2048) < 8192;
-
-  // Convert through a fixed worker pool. This bounds memory usage without
-  // creating one polling timer per queued file.
-  const maxConcurrency = 4;
-
-  // Track whether we've auto-previewed any result yet so we only preview
-  // the first successful conversion (subsequent rows can be previewed by
-  // clicking the "Preview" button on each row).
-  let autoPreviewed = false;
-
-  async function runOne(id: string) {
-    const entry = fileRows.find((e) => e.id === id);
+  async function runOne(id: string): Promise<void> {
+    const entry = fileRows.find((candidate) => candidate.id === id);
     if (!entry) return;
+    const sourceFile = entry.file;
     try {
-      queue.update(entry.id, { status: 'converting', progress: 0 });
-      updateBatchProgress(entry.id, 'parse', 0);
-      let sourceFiles: AssetFile[] = await readAssetFiles(entry);
-      // capture pre-stats from the row's inspect field if present
-      const row = queue.list().find((r) => r.id === entry.id);
-      const beforeStats: InspectResult | undefined = row?.inspect;
-      if (hasOptimization) {
-        queue.update(entry.id, { phase: 'optimizing' });
-        const normalized = await convertAsset(sourceFiles, {
-          ...baseOpts,
-          name: entry.file.name,
-          outputFormat: 'glb',
-        });
-        const opt = await optimizeGltf(normalized.data, {
-          ...baseOpts,
-          onProgress: (phase: ConvertPhase, pct: number) => {
-            queue.update(entry.id, { progress: pct, phase });
-            updateBatchProgress(entry.id, phase, pct);
-          },
-        });
-        sourceFiles = [
-          {
-            name: `${entry.file.name.replace(/\.[^.]+$/, '')}.glb`,
-            data: opt.data,
-          },
-        ];
-        // Render the diff for the FIRST optimized file we see, so the
-        // user gets a sense of what the pass did.
-        if (!autoPreviewed && beforeStats) {
-          renderStats(beforeStats, opt.stats, opt.changes);
-        }
-      }
-      const result = await convertAsset(sourceFiles, {
-        ...baseOpts,
-        name: entry.file.name,
-        onProgress: (phase: ConvertPhase, pct: number) => {
-          queue.update(entry.id, { progress: pct, phase });
-          updateBatchProgress(entry.id, phase, pct);
-        },
+      queue.update(entry.id, {
+        status: 'converting',
+        progress: 0,
+        phase: 'Preparing source…',
       });
-      queue.update(entry.id, { status: 'done', progress: 1, phase: 'done', result });
-      taskProgress.set(entry.id, 1);
-      if (!autoPreviewed) {
-        autoPreviewed = true;
-        previewConverted(result);
+
+      const normalized = await normalizedPreview(
+        entry,
+        sourceFile,
+        (pct) => updateItemProgress(entry, 0.02 + pct * 0.08, 'Reading source files…'),
+        (phase, pct) => {
+          const [progress, detail] = workerNormalizationProgress(phase, pct);
+          updateItemProgress(entry, 0.1 + progress * 0.2, detail);
+        },
+        () => updateItemProgress(entry, 0.3, 'Reusing prepared source model…'),
+        normalizeForConversion,
+      );
+      if (entry.file !== sourceFile) throw new Error('Source model changed during conversion.');
+      updateItemProgress(entry, 0.3, 'Source model ready');
+
+      let preparedData = normalized.data;
+      let optimized: OptimizeResult | undefined;
+      if (entry.optimizedPreview?.key === cacheKey) {
+        optimized = entry.optimizedPreview.result;
+        preparedData = optimized.data;
+        updateItemProgress(entry, 0.68, 'Reusing generated optimized model…');
+      } else if (shouldOptimize) {
+        optimized = await optimizeInWorker(normalized.data, options, (phase, pct) => {
+          const [start, end] = OPTIMIZED_PREVIEW_PHASE_RANGES[phase];
+          const clamped = Math.max(0, Math.min(1, Number.isFinite(pct) ? pct : 0));
+          const progress = start + (end - start) * clamped;
+          updateItemProgress(entry, 0.3 + progress * 0.38, OPTIMIZED_PREVIEW_PHASE_LABELS[phase]);
+        });
+        if (entry.file !== sourceFile) throw new Error('Source model changed during conversion.');
+        entry.optimizedPreview = { key: cacheKey, result: optimized };
+        preparedData = optimized.data;
+      } else {
+        updateItemProgress(entry, 0.68, 'Prepared model ready for export');
       }
-    } catch (err) {
-      const e = err as { name?: string; message?: string };
-      queue.update(entry.id, { status: 'error', errorMessage: e.message ?? 'Failed' });
-      taskProgress.set(entry.id, 1);
-      toast(`${entry.file.name}: ${e.message ?? 'conversion failed'}`, 'err');
+
+      const beforeStats = queue.list().find((row) => row.id === entry.id)?.inspect;
+      if (!renderedOptimizationStats && optimized && beforeStats) {
+        renderStats(beforeStats, optimized.stats, optimized.changes);
+        renderedOptimizationStats = true;
+      }
+
+      const preparedName = `${sourceFile.name.replace(/\.[^.]+$/, '')}.glb`;
+      const result = await convertInWorker(
+        [{ name: preparedName, data: preparedData }],
+        sourceFile.name,
+        options,
+        (phase, pct) => {
+          const [progress, detail] = workerExportProgress(phase, pct);
+          updateItemProgress(entry, 0.68 + progress * 0.3, detail);
+        },
+      );
+      if (entry.file !== sourceFile) throw new Error('Source model changed during conversion.');
+
+      queue.update(entry.id, {
+        status: 'done',
+        progress: 1,
+        phase: 'done',
+        result,
+      });
+      itemProgress.set(entry.id, 1);
+      lastItemProgress.set(entry.id, 1);
+      autoPreview ??= {
+        data: preparedData,
+        label: `Converted ${result.format.toUpperCase()} · ${result.filename}`,
+      };
+    } catch (reason) {
+      const error = reason instanceof Error ? reason : new Error(String(reason));
+      queue.update(entry.id, {
+        status: 'error',
+        progress: 1,
+        errorMessage: error.message || 'Failed',
+      });
+      itemProgress.set(entry.id, 1);
+      lastItemProgress.set(entry.id, 1);
+      toast(`${sourceFile.name}: ${error.message || 'conversion failed'}`, 'err');
     }
   }
 
-  let nextTarget = 0;
-  async function worker() {
-    while (nextTarget < targets.length) {
-      const target = targets[nextTarget++];
-      await runOne(target.id);
+  // The worker serializes its native WebAssembly state. Running one model at a
+  // time also prevents several large transferable buffers from accumulating.
+  for (const target of targets) await runOne(target.id);
+
+  if (autoPreview && request === outputPreviewRequest) {
+    try {
+      updateOutputLoading(request, 0.99, 'Rendering converted preview…');
+      await nextPaint();
+      await previewGlb(autoPreview.data, autoPreview.label, request);
+      updateOutputLoading(request, 1, 'Conversion complete');
+      await nextPaint();
+    } catch (error) {
+      toast(`Converted preview failed: ${(error as Error).message}`, 'err');
     }
   }
-  await Promise.all(
-    Array.from({ length: Math.min(maxConcurrency, targets.length) }, () => worker()),
-  );
+  finishOutputLoading(request);
 
   convertAllBtn.disabled = false;
   clearBtn.disabled = false;
   previewOptBtn.disabled = false;
+  loadBtn.disabled = false;
+  addMoreBtn.disabled = false;
   if (masterCheck) masterCheck.disabled = false;
 
-  const succeeded = queue.list().filter((r) => r.status === 'done');
+  const succeeded = queue.list().filter((row) => row.status === 'done');
   if (succeeded.length > 1 || succeeded.some((row) => (row.result?.files.length ?? 0) > 1)) {
     queue.showSaveAllButton(true);
   }
@@ -1077,13 +1127,13 @@ async function convertAll() {
     queue.list().some((item) => item.id === row.id && item.status === 'done'),
   );
   if (succeededTargets.length === targets.length) {
-    task.complete(
-      targets.length === 1 ? 'Conversion complete' : `${targets.length} conversions complete`,
+    toast(
+      targets.length === 1 ? 'Conversion complete.' : `${targets.length} conversions complete.`,
+      'ok',
     );
   } else if (succeededTargets.length > 0) {
-    task.fail(`${succeededTargets.length}/${targets.length} conversions complete`);
+    toast(`${succeededTargets.length}/${targets.length} conversions complete.`, 'warn');
   } else {
-    task.fail('No files converted successfully.');
     toast('No files converted successfully.', 'warn');
   }
 }

@@ -146,6 +146,10 @@ The loading panel reports each of those stages and remains animated during long 
 
 **Generate optimized preview** uses the matching progress panel in the output viewer. It reports source preparation, inspection, geometry and LOD work, texture/material processing, preview packaging, parsing, and rendering, then displays the before/after statistics without writing an export.
 
+**Convert selected** uses that same output-viewer progress panel for source preparation, optimization, format export, validation, and final rendering. The complete conversion pipeline runs in a dedicated worker, so native Assimp work, Meshopt passes, LOD construction, texture processing, and export serialization do not occupy the page’s UI thread. Batch conversions run one model at a time to keep several large model buffers from accumulating in memory.
+
+When **Generate optimized preview** has already produced a model with the current geometry, texture, engine, and LOD settings, conversion exports directly from that cached optimized GLB. ModelShift does not repeat normalization or optimization. Changing only the output format or other export-only settings keeps the cached model valid; changing the source or an optimization setting invalidates it. The converted output viewer also renders from this prepared GLB, avoiding a second import round trip through the exported format.
+
 ## How LOD generation works
 
 LOD generation is a geometry-first pipeline. It favors a safe plateau over hitting a triangle target with holes, folded faces, broken UV islands, or a visibly damaged outline.
