@@ -138,6 +138,14 @@ Local web UI ─┘                    └──────────── l
 
 All import paths are normalized through Assimp. The browser previews every supported source and result by generating a temporary GLB and loading it with three.js. Multi-file outputs retain their companion files in `exports/`.
 
+### Large-model preview loading
+
+Source previews use a staged loading pipeline. The browser first reads the selected primary and companion files while reporting byte progress, then transfers those buffers to a dedicated Web Worker. Assimp source analysis and temporary GLB generation run inside that worker, keeping the page controls and progress animation responsive even for scan-sized meshes. Once normalization finishes, the page parses the temporary GLB, inspects its scene metadata, and sends it to the three.js viewer.
+
+The loading panel reports each of those stages and remains animated during long native Assimp calls, where intermediate percentage data is not available. ModelShift also reuses glTF accessor bounds instead of synchronously rescanning every vertex, caches a row’s normalized preview for later refocusing, cancels obsolete worker jobs when the active asset changes, and only prepares the actively previewed item instead of eagerly processing an entire batch.
+
+**Generate optimized preview** uses the matching progress panel in the output viewer. It reports source preparation, inspection, geometry and LOD work, texture/material processing, preview packaging, parsing, and rendering, then displays the before/after statistics without writing an export.
+
 ## How LOD generation works
 
 LOD generation is a geometry-first pipeline. It favors a safe plateau over hitting a triangle target with holes, folded faces, broken UV islands, or a visibly damaged outline.

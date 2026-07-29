@@ -9,15 +9,33 @@ import { createProfiles } from './ui/profiles.js';
 import { createViewer, type ViewerAxis } from './ui/viewer.js';
 import { progressToast, toast } from './ui/toast.js';
 import { saveResultsToExports, type SavedExport } from './lib/export-store.js';
+import {
+  cancelPreviewNormalizations,
+  disposePreviewNormalizer,
+  normalizePreview,
+  type PreviewNormalized,
+} from './lib/preview-normalizer.js';
 import { detectLods, selectLod, renderLodSelector, hideLodSelector } from './ui/lod.js';
 import type { AssetFile, ConvertPhase, ConvertResult, InspectResult } from '../shared/options.js';
 import type { OptimizeChange } from '../core/optimize.js';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
 const inputCanvas = document.getElementById('canvas-input') as HTMLCanvasElement;
 const outputCanvas = document.getElementById('canvas-output') as HTMLCanvasElement;
 const inputEmpty = document.querySelector('#viewer-input .viewer-empty') as HTMLElement;
 const outputEmpty = document.querySelector('#viewer-output .viewer-empty') as HTMLElement;
+const inputLoading = document.getElementById('input-loading') as HTMLElement;
+const inputLoadingTitle = document.getElementById('input-loading-title') as HTMLElement;
+const inputLoadingDetail = document.getElementById('input-loading-detail') as HTMLElement;
+const inputLoadingBar = document.getElementById('input-loading-bar') as HTMLElement;
+const inputLoadingPercent = document.getElementById('input-loading-percent') as HTMLElement;
+const inputLoadingTrack = inputLoadingBar.parentElement as HTMLElement;
+const outputLoading = document.getElementById('output-loading') as HTMLElement;
+const outputLoadingTitle = document.getElementById('output-loading-title') as HTMLElement;
+const outputLoadingDetail = document.getElementById('output-loading-detail') as HTMLElement;
+const outputLoadingBar = document.getElementById('output-loading-bar') as HTMLElement;
+const outputLoadingPercent = document.getElementById('output-loading-percent') as HTMLElement;
+const outputLoadingTrack = outputLoadingBar.parentElement as HTMLElement;
 const pickBtn = document.getElementById('pick-file-btn') as HTMLButtonElement;
 const loadBtn = document.getElementById('load-btn') as HTMLButtonElement;
 const addMoreBtn = document.getElementById('add-more-btn') as HTMLButtonElement;
@@ -80,16 +98,29 @@ const TASK_PHASE_LABELS: Record<ConvertPhase, string> = {
   post: 'Finalizing…',
 };
 
-function updateTaskToast(
-  task: ReturnType<typeof progressToast>,
-  phase: ConvertPhase,
-  pct: number,
-  detail?: string,
-): void {
-  const [start, end] = TASK_PHASE_RANGES[phase];
-  const clamped = Math.max(0, Math.min(1, Number.isFinite(pct) ? pct : 0));
-  task.update(start + (end - start) * clamped, detail ?? TASK_PHASE_LABELS[phase]);
-}
+const OPTIMIZED_PREVIEW_PHASE_RANGES: Record<ConvertPhase, [number, number]> = {
+  parse: [0, 0.1],
+  textures: [0.1, 0.24],
+  optimize: [0.24, 0.72],
+  materials: [0.72, 0.78],
+  skeleton: [0.78, 0.82],
+  animation: [0.82, 0.86],
+  inspect: [0.86, 0.92],
+  export: [0.92, 0.99],
+  post: [0.99, 1],
+};
+
+const OPTIMIZED_PREVIEW_PHASE_LABELS: Record<ConvertPhase, string> = {
+  parse: 'Parsing normalized model…',
+  textures: 'Preparing textures…',
+  optimize: 'Optimizing geometry and generating LODs…',
+  materials: 'Updating materials…',
+  skeleton: 'Preserving skeleton…',
+  animation: 'Preserving animation…',
+  inspect: 'Inspecting optimized scene…',
+  export: 'Packaging optimized preview…',
+  post: 'Finalizing optimized preview…',
+};
 
 const queue = createQueue(queueHost, queueList);
 interface FileRow {
@@ -98,9 +129,12 @@ interface FileRow {
   files: File[];
   /** Reuse the active preview parse instead of parsing large files again. */
   inspectPromise?: Promise<InspectResult>;
+  /** Reuse the worker-normalized GLB when a row is focused again. */
+  previewNormalizedPromise?: Promise<PreviewNormalized>;
 }
 const fileRows: FileRow[] = [];
 let activeId: string | null = null;
+let inputPreviewRequest = 0;
 let outputPreviewRequest = 0;
 
 // Dropzone
@@ -147,13 +181,55 @@ function fileImportName(file: File): string {
   return file.webkitRelativePath || file.name;
 }
 
-async function readAssetFiles(entry: FileRow): Promise<AssetFile[]> {
-  return Promise.all(
+function readFileWithProgress(
+  file: File,
+  onProgress: (loaded: number) => void,
+): Promise<ArrayBuffer> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener('progress', (event) => {
+      if (event.lengthComputable) onProgress(event.loaded);
+    });
+    reader.addEventListener('load', () => {
+      if (!(reader.result instanceof ArrayBuffer)) {
+        reject(new Error(`Could not read "${file.name}" as binary data.`));
+        return;
+      }
+      onProgress(reader.result.byteLength);
+      resolve(reader.result);
+    });
+    reader.addEventListener('error', () => {
+      reject(reader.error ?? new Error(`Could not read "${file.name}".`));
+    });
+    reader.addEventListener('abort', () => {
+      const error = new Error(`Reading "${file.name}" was cancelled.`);
+      error.name = 'AbortError';
+      reject(error);
+    });
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+async function readAssetFiles(
+  entry: FileRow,
+  onProgress?: (pct: number) => void,
+): Promise<AssetFile[]> {
+  const total = entry.files.reduce((sum, file) => sum + file.size, 0);
+  const loaded = new Map<File, number>();
+  const update = (file: File, bytes: number) => {
+    loaded.set(file, bytes);
+    const current = Array.from(loaded.values()).reduce((sum, value) => sum + value, 0);
+    onProgress?.(total > 0 ? Math.min(1, current / total) : 1);
+  };
+  onProgress?.(0);
+  const files = await Promise.all(
     entry.files.map(async (file) => ({
       name: fileImportName(file),
-      data: await file.arrayBuffer(),
+      data: await readFileWithProgress(file, (bytes) => update(file, bytes)),
     })),
   );
+  onProgress?.(1);
+  return files;
 }
 
 async function addFiles(files: File[]) {
@@ -176,13 +252,6 @@ async function addFiles(files: File[]) {
   // Auto-focus the last added file so the user sees a preview right away.
   const lastId = added[added.length - 1].id;
   focusRow(lastId);
-  // Kick off inspection in the background — the queue row will
-  // update with metadata as soon as it's ready.
-  for (const entry of added) {
-    if (!entry.inspectPromise) {
-      trackInspection(entry, entry.file, inspectOne(entry));
-    }
-  }
 }
 
 function trackInspection(
@@ -203,6 +272,7 @@ function trackInspection(
 
 function resetOutputPreview() {
   outputPreviewRequest++;
+  outputLoading.hidden = true;
   outputViewer.clear();
   outputViewer.setAxisLock(null);
   outputViewer.setWireframe(false);
@@ -226,9 +296,12 @@ function replaceActiveFiles(files: File[]) {
     return;
   }
 
+  inputPreviewRequest++;
+  cancelPreviewNormalizations();
   entry.file = group.primary;
   entry.files = group.files;
   entry.inspectPromise = undefined;
+  entry.previewNormalizedPromise = undefined;
   queue.update(entry.id, {
     name: group.primary.name,
     size: group.files.reduce((sum, file) => sum + file.size, 0),
@@ -245,18 +318,102 @@ function replaceActiveFiles(files: File[]) {
   focusRow(entry.id);
 }
 
-async function inspectOne(entry: FileRow): Promise<InspectResult> {
-  const { convertAsset, inspectGltf } = await import('@core');
-  const normalized = await convertAsset(await readAssetFiles(entry), {
-    name: entry.file.name,
-    outputFormat: 'glb',
+function updateInputLoading(request: number, pct: number, detail: string): void {
+  if (request !== inputPreviewRequest) return;
+  const progress = Math.max(0, Math.min(1, Number.isFinite(pct) ? pct : 0));
+  const percent = Math.round(progress * 100);
+  inputLoading.hidden = false;
+  inputLoadingDetail.textContent = detail;
+  inputLoadingBar.style.width = `${percent}%`;
+  inputLoadingPercent.textContent = `${percent}%`;
+  inputLoadingTrack.setAttribute('aria-valuenow', String(percent));
+}
+
+function beginInputLoading(request: number, file: File): void {
+  inputLoadingTitle.textContent = `Loading ${file.name}`;
+  updateInputLoading(request, 0, 'Preparing source files…');
+}
+
+function finishInputLoading(request: number): void {
+  if (request !== inputPreviewRequest) return;
+  inputLoading.hidden = true;
+}
+
+function updateOutputLoading(request: number, pct: number, detail: string): void {
+  if (request !== outputPreviewRequest) return;
+  const progress = Math.max(0, Math.min(1, Number.isFinite(pct) ? pct : 0));
+  const percent = Math.round(progress * 100);
+  outputLoading.hidden = false;
+  outputLoadingDetail.textContent = detail;
+  outputLoadingBar.style.width = `${percent}%`;
+  outputLoadingPercent.textContent = `${percent}%`;
+  outputLoadingTrack.setAttribute('aria-valuenow', String(percent));
+}
+
+function beginOutputLoading(request: number, file: File): void {
+  outputLoadingTitle.textContent = `Generating optimized preview · ${file.name}`;
+  updateOutputLoading(request, 0, 'Preparing source model…');
+}
+
+function finishOutputLoading(request: number): void {
+  if (request !== outputPreviewRequest) return;
+  outputLoading.hidden = true;
+}
+
+function nextPaint(): Promise<void> {
+  return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+}
+
+function workerNormalizationProgress(phase: ConvertPhase, pct: number): [number, string] {
+  const progress = Math.max(0, Math.min(1, Number.isFinite(pct) ? pct : 0));
+  if (phase === 'parse') {
+    return [progress * 0.5, 'Analyzing source geometry…'];
+  }
+  if (phase === 'export') {
+    return [0.5 + progress * 0.4, 'Building browser preview…'];
+  }
+  return [progress >= 1 ? 1 : 0.5, 'Finalizing normalized model…'];
+}
+
+async function normalizedPreview(
+  entry: FileRow,
+  file: File,
+  onReadProgress: (pct: number) => void,
+  onWorkerProgress: (phase: ConvertPhase, pct: number) => void,
+  onReuse: () => void,
+): Promise<PreviewNormalized> {
+  if (!entry.previewNormalizedPromise) {
+    entry.previewNormalizedPromise = (async () => {
+      const files = await readAssetFiles(entry, onReadProgress);
+      return normalizePreview(files, file.name, onWorkerProgress);
+    })().catch((error) => {
+      entry.previewNormalizedPromise = undefined;
+      throw error;
+    });
+  } else {
+    onReuse();
+  }
+  return entry.previewNormalizedPromise;
+}
+
+function parsePreviewGlb(data: Uint8Array): Promise<GLTF> {
+  const buffer =
+    data.buffer instanceof ArrayBuffer &&
+    data.byteOffset === 0 &&
+    data.byteLength === data.buffer.byteLength
+      ? data.buffer
+      : data.slice().buffer;
+  return new Promise((resolve, reject) => {
+    new GLTFLoader().parse(buffer, '', resolve, (reason) =>
+      reject(reason instanceof Error ? reason : new Error(reason?.message ?? 'unknown error')),
+    );
   });
-  return inspectGltf(normalized.data);
 }
 
 function focusRow(id: string) {
   const entry = fileRows.find((e) => e.id === id);
   if (!entry) return;
+  if (activeId !== id) cancelPreviewNormalizations();
   activeId = id;
   queue.setActive(id);
   const file = entry.file;
@@ -272,45 +429,60 @@ function focusRow(id: string) {
 
 // Normalize any supported input to GLB for the shared three.js preview.
 async function previewInput(entry: FileRow, file: File): Promise<InspectResult> {
-  const { convertAsset } = await import('@core');
-  const normalized = await convertAsset(await readAssetFiles(entry), {
-    name: file.name,
-    outputFormat: 'glb',
-  });
-  const glb = normalized.data;
-  const buf =
-    glb.buffer instanceof ArrayBuffer &&
-    glb.byteOffset === 0 &&
-    glb.byteLength === glb.buffer.byteLength
-      ? glb.buffer
-      : glb.slice().buffer;
-  return new Promise((resolve, reject) => {
-    new GLTFLoader().parse(
-      buf,
-      '',
-      async (gltf) => {
-        try {
-          const { inspectScene } = await import('@core');
-          const info = inspectScene(gltf.scene, gltf.animations);
-          if (entry.file === file && activeId === entry.id) {
-            inputEmpty.hidden = true;
-            inputCanvas.hidden = false;
-            inputViewer.setScene(gltf.scene);
-          }
-          resolve(info);
-        } catch (error) {
-          reject(error);
-        }
+  const request = ++inputPreviewRequest;
+  beginInputLoading(request, file);
+  try {
+    let lastProgress = 0;
+    const updateMonotonic = (progress: number, detail: string) => {
+      lastProgress = Math.max(lastProgress, progress);
+      updateInputLoading(request, lastProgress, detail);
+    };
+    const normalized = await normalizedPreview(
+      entry,
+      file,
+      (pct) => updateMonotonic(0.02 + pct * 0.16, 'Reading source files…'),
+      (phase, pct) => {
+        const [progress, detail] = workerNormalizationProgress(phase, pct);
+        updateMonotonic(0.18 + progress * 0.72, detail);
       },
-      (err) => {
-        const error = err instanceof Error ? err : new Error(err?.message ?? 'unknown error');
-        if (entry.file === file && activeId === entry.id) {
-          toast(`Preview failed: ${error.message}`, 'err');
-        }
-        reject(error);
-      },
+      () => updateMonotonic(0.18, 'Reusing prepared model…'),
     );
-  });
+    if (request !== inputPreviewRequest || entry.file !== file || activeId !== entry.id) {
+      const error = new Error('Preview loading was superseded.');
+      error.name = 'AbortError';
+      throw error;
+    }
+
+    updateInputLoading(request, 0.92, 'Parsing preview scene…');
+    await nextPaint();
+    const gltf = await parsePreviewGlb(normalized.data);
+    updateInputLoading(request, 0.96, 'Inspecting scene metadata…');
+    const { inspectScene } = await import('@core');
+    const info = inspectScene(gltf.scene, gltf.animations);
+
+    if (request !== inputPreviewRequest || entry.file !== file || activeId !== entry.id) {
+      const error = new Error('Preview loading was superseded.');
+      error.name = 'AbortError';
+      throw error;
+    }
+
+    updateInputLoading(request, 0.98, 'Sending model to the viewer…');
+    await nextPaint();
+    inputEmpty.hidden = true;
+    inputCanvas.hidden = false;
+    inputViewer.setScene(gltf.scene);
+    updateInputLoading(request, 1, 'Preview ready');
+    await nextPaint();
+    finishInputLoading(request);
+    return info;
+  } catch (reason) {
+    const error = reason instanceof Error ? reason : new Error(String(reason));
+    finishInputLoading(request);
+    if (error.name !== 'AbortError' && entry.file === file && activeId === entry.id) {
+      toast(`Preview failed: ${error.message}`, 'err');
+    }
+    throw error;
+  }
 }
 
 // Preview any converted format by normalizing its output bundle to GLB.
@@ -379,8 +551,8 @@ async function previewConverted(result: ConvertResult) {
 }
 
 // Preview a GLB (the optimized one) directly without going through FBX.
-async function previewGlb(glb: Uint8Array, label: string) {
-  const request = ++outputPreviewRequest;
+async function previewGlb(glb: Uint8Array, label: string, activeRequest?: number) {
+  const request = activeRequest ?? ++outputPreviewRequest;
   outputEmpty.hidden = true;
   outputCanvas.hidden = false;
   try {
@@ -411,7 +583,7 @@ async function previewGlb(glb: Uint8Array, label: string) {
     if (request !== outputPreviewRequest) return;
     outputEmpty.hidden = false;
     outputCanvas.hidden = true;
-    toast(`Preview failed: ${(err as Error).message}`, 'err');
+    throw err;
   }
 }
 
@@ -543,7 +715,10 @@ queue.onRemoveOne((id) => {
   const i = fileRows.findIndex((e) => e.id === id);
   if (i >= 0) fileRows.splice(i, 1);
   if (activeId === id) {
+    inputPreviewRequest++;
+    cancelPreviewNormalizations();
     activeId = null;
+    inputLoading.hidden = true;
     inputEmpty.hidden = false;
     inputCanvas.hidden = true;
     inputViewer.clear();
@@ -646,10 +821,14 @@ bindAutoRotateButton(autoRotateOutputBtn, outputViewer);
 clearBtn.addEventListener('click', () => clearAll());
 convertAllBtn.addEventListener('click', () => convertAll());
 saveAllBtn.addEventListener('click', () => saveAll());
-previewOptBtn.addEventListener('click', () => previewOptimization());
+previewOptBtn.addEventListener('click', () => generateOptimizedPreview());
 
 function clearAll() {
+  inputPreviewRequest++;
   outputPreviewRequest++;
+  disposePreviewNormalizer();
+  inputLoading.hidden = true;
+  outputLoading.hidden = true;
   queue.clear();
   fileRows.length = 0;
   activeId = null;
@@ -675,11 +854,11 @@ function clearAll() {
 }
 
 /**
- * Apply the current optimization settings to the active file (or the
- * first selected queued file) and show the result in OUTPUT. Does
- * Does not write the selected output format; it previews the optimization pass.
+ * Apply the current optimization settings to the active file (or the first
+ * selected queued file), generate a model, and show it in OUTPUT without
+ * writing the selected export format.
  */
-async function previewOptimization() {
+async function generateOptimizedPreview() {
   const target = activeId ? fileRows.find((e) => e.id === activeId) : fileRows[0];
   if (!target) {
     toast('No file selected.', 'warn');
@@ -690,48 +869,83 @@ async function previewOptimization() {
   // preview resident made the second run substantially more memory-intensive
   // than the first and could crash the browser even on small assets.
   resetOutputPreview();
+  const request = outputPreviewRequest;
+  beginOutputLoading(request, target.file);
   previewOptBtn.disabled = true;
-  const task = progressToast(`Preview optimization · ${target.file.name}`);
+  let lastProgress = 0;
+  const updateProgress = (progress: number, detail: string) => {
+    lastProgress = Math.max(lastProgress, progress);
+    updateOutputLoading(request, lastProgress, detail);
+  };
+  const assertCurrent = () => {
+    if (request === outputPreviewRequest) return;
+    const error = new Error('Optimized preview generation was cancelled.');
+    error.name = 'AbortError';
+    throw error;
+  };
+
   try {
-    const { convertAsset, optimizeGltf, inspectGltf } = await import('@core');
-    const opts = {
-      ...readOptions(),
-      onProgress: (phase: ConvertPhase, pct: number) => updateTaskToast(task, phase, pct),
-    };
-    updateTaskToast(task, 'parse', 0.05, 'Reading source…');
-    const normalized = await convertAsset(await readAssetFiles(target), {
-      ...opts,
-      name: target.file.name,
-      outputFormat: 'glb',
-    });
+    const { optimizeGltf, inspectGltf } = await import('@core');
+    const normalized = await normalizedPreview(
+      target,
+      target.file,
+      (pct) => updateProgress(0.02 + pct * 0.1, 'Reading source files…'),
+      (phase, pct) => {
+        const [progress, detail] = workerNormalizationProgress(phase, pct);
+        updateProgress(0.12 + progress * 0.3, detail);
+      },
+      () => updateProgress(0.42, 'Reusing prepared source model…'),
+    );
+    assertCurrent();
+
     const buf = normalized.data;
-    updateTaskToast(task, 'inspect', 0, 'Inspecting source…');
-    // File rows are inspected when they enter the queue. Reuse that result so
-    // previewing does not parse and decode the same source a second time right
-    // before the optimization parser needs its own copy.
+    updateProgress(0.43, 'Inspecting source model…');
+    // Reuse inspection from the input preview when available. If input loading
+    // is still finishing, await that same parse instead of starting another.
     let before = queue.list().find((row) => row.id === target.id)?.inspect;
     if (!before) {
       before = await (target.inspectPromise ??
         trackInspection(target, target.file, inspectGltf(buf)));
     }
-    updateTaskToast(task, 'inspect', 0.12, 'Source inspected');
+    assertCurrent();
+    updateProgress(0.46, 'Source model ready');
+
+    const opts = {
+      ...readOptions(),
+      onProgress: (phase: ConvertPhase, pct: number) => {
+        const [start, end] = OPTIMIZED_PREVIEW_PHASE_RANGES[phase];
+        const clamped = Math.max(0, Math.min(1, Number.isFinite(pct) ? pct : 0));
+        updateProgress(
+          0.46 + (start + (end - start) * clamped) * 0.51,
+          OPTIMIZED_PREVIEW_PHASE_LABELS[phase],
+        );
+      },
+    };
     const result = await optimizeGltf(buf, opts);
-    updateTaskToast(task, 'export', 0.9, 'Loading optimized preview…');
-    await previewGlb(result.data, `Optimized preview · ${target.file.name}`);
+    assertCurrent();
+    updateProgress(0.98, 'Parsing optimized preview…');
+    await nextPaint();
+    await previewGlb(result.data, `Optimized preview · ${target.file.name}`, request);
+    assertCurrent();
+    updateProgress(1, 'Optimized preview ready');
+    await nextPaint();
+    finishOutputLoading(request);
     renderStats(before, result.stats, result.changes);
     if (result.changes.length === 0) {
-      task.complete('No optimizations applied (settings match defaults).');
+      toast('Optimized preview ready · current settings made no changes.', 'ok');
     } else {
-      task.complete(
-        `Applied ${result.changes.length} optimization${result.changes.length === 1 ? '' : 's'}.`,
+      toast(
+        `Optimized preview ready · applied ${result.changes.length} optimization${result.changes.length === 1 ? '' : 's'}.`,
+        'ok',
       );
     }
   } catch (err) {
+    if ((err as Error).name === 'AbortError') return;
     const message = `Preview failed: ${(err as Error).message}`;
-    task.fail(message);
     toast(message, 'err');
   } finally {
-    previewOptBtn.disabled = false;
+    finishOutputLoading(request);
+    previewOptBtn.disabled = queue.list().length === 0;
   }
 }
 

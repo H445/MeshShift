@@ -168,6 +168,25 @@
                 hidden
               />
             </div>
+            <div class="viewer-loading" id="input-loading" role="status" hidden>
+              <div class="viewer-loading-card">
+                <div class="viewer-loading-copy">
+                  <strong id="input-loading-title">Loading model…</strong>
+                  <span id="input-loading-detail">Reading source files…</span>
+                </div>
+                <div
+                  class="viewer-loading-track"
+                  role="progressbar"
+                  aria-label="Model loading progress"
+                  aria-valuemin="0"
+                  aria-valuemax="100"
+                  aria-valuenow="0"
+                >
+                  <div class="viewer-loading-bar" id="input-loading-bar"></div>
+                </div>
+                <span class="viewer-loading-percent" id="input-loading-percent">0%</span>
+              </div>
+            </div>
             <canvas id="canvas-input" hidden></canvas>
           </div>
         </section>
@@ -265,9 +284,28 @@
             <div class="viewer-empty">
               <p>Your converted asset will appear here</p>
               <p class="empty-sub">
-                Drop files, set options, and click <strong>Preview optimization</strong> to see the
-                result without exporting.
+                Drop files, set options, and click
+                <strong>Generate optimized preview</strong> to see the result without exporting.
               </p>
+            </div>
+            <div class="viewer-loading" id="output-loading" role="status" hidden>
+              <div class="viewer-loading-card">
+                <div class="viewer-loading-copy">
+                  <strong id="output-loading-title">Generating optimized preview…</strong>
+                  <span id="output-loading-detail">Preparing source model…</span>
+                </div>
+                <div
+                  class="viewer-loading-track"
+                  role="progressbar"
+                  aria-label="Optimized preview progress"
+                  aria-valuemin="0"
+                  aria-valuemax="100"
+                  aria-valuenow="0"
+                >
+                  <div class="viewer-loading-bar" id="output-loading-bar"></div>
+                </div>
+                <span class="viewer-loading-percent" id="output-loading-percent">0%</span>
+              </div>
             </div>
             <canvas id="canvas-output" hidden></canvas>
           </div>
@@ -303,9 +341,9 @@
             <button
               class="btn btn-secondary"
               id="preview-opt-btn"
-              title="Preview the optimized result in the OUTPUT viewer (without exporting)"
+              title="Generate an optimized model and show it in the OUTPUT viewer without exporting"
             >
-              Preview optimization
+              Generate optimized preview
             </button>
             <button class="btn btn-primary" id="convert-all-btn">Convert all</button>
             <button class="btn btn-secondary" id="clear-btn">Clear</button>
@@ -453,7 +491,7 @@
         </div>
         <footer class="settings-footer">
           <small
-            >Profile choices are saved automatically and apply to Preview optimization and
+            >Profile choices are saved automatically and apply to Generate optimized preview and
             export.</small
           >
         </footer>

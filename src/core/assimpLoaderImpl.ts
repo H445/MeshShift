@@ -2,8 +2,8 @@
  * Cross-environment assimpjs loader.
  *
  * Browser:  loads the vendored `assimpjs.js` (repalash fork with FBX export)
- *           as a <script> tag, then initialises with `locateFile` pointing
- *           at /assimpjs.wasm.
+ *           in either a document or Web Worker, then initialises with
+ *           `locateFile` pointing at /assimpjs.wasm.
  * Node:     reads the vendored .js + .wasm from disk and evaluates the .js
  *           inside a controlled `vm` context with a `require('fs')` shim.
  *
@@ -47,7 +47,19 @@ function loadInBrowser(): Promise<AssimpInstance> {
   return (async () => {
     const g = globalThis as unknown as { assimpjs?: Factory };
     if (typeof g.assimpjs !== 'function') {
-      await loadScript('/assimpjs.js');
+      if (typeof document !== 'undefined') {
+        await loadScript('/assimpjs.js');
+      } else {
+        const response = await fetch('/assimpjs.js');
+        if (!response.ok) {
+          throw new Error(`Failed to load script: /assimpjs.js (${response.status})`);
+        }
+        const source = await response.text();
+        // The vendored build is a classic UMD-style script, while Vite emits
+        // module workers. Evaluate it inside this isolated worker and return
+        // its local factory without exposing it to the page's global scope.
+        g.assimpjs = new Function(`${source}\nreturn assimpjs;`)() as Factory;
+      }
     }
     const factory = (globalThis as unknown as { assimpjs?: Factory }).assimpjs;
     if (typeof factory !== 'function') {

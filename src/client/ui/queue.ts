@@ -133,7 +133,7 @@ export function createQueue(_host: HTMLElement, listEl: HTMLElement): QueueHandl
         if (r.inspect.hasSkin) parts.push('skinned');
         if (r.inspect.hasMorph) parts.push('morph');
       } else {
-        parts.push('inspecting…');
+        parts.push('preview for details');
       }
       // progress is only meaningful while converting
       if (r.status === 'converting' || r.status === 'done') {

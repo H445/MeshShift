@@ -175,6 +175,10 @@ function geomVertexCount(geo: { attributes: Record<string, { count: number }> })
 
 /** Compute axis-aligned bounding box of a buffer geometry. */
 function computeBBox(geo: {
+  boundingBox?: {
+    min: { x: number; y: number; z: number };
+    max: { x: number; y: number; z: number };
+  } | null;
   attributes: {
     position?: {
       count: number;
@@ -187,6 +191,27 @@ function computeBBox(geo: {
   min: [number, number, number];
   max: [number, number, number];
 } {
+  // GLTFLoader populates BufferGeometry.boundingBox directly from accessor
+  // min/max values. Reusing it turns inspection of a multi-million-vertex
+  // model from a full synchronous vertex scan into a constant-time lookup.
+  const embedded = geo.boundingBox;
+  if (
+    embedded &&
+    [
+      embedded.min.x,
+      embedded.min.y,
+      embedded.min.z,
+      embedded.max.x,
+      embedded.max.y,
+      embedded.max.z,
+    ].every(Number.isFinite)
+  ) {
+    return {
+      min: [embedded.min.x, embedded.min.y, embedded.min.z],
+      max: [embedded.max.x, embedded.max.y, embedded.max.z],
+    };
+  }
+
   const pos = geo.attributes.position;
   const min: [number, number, number] = [Infinity, Infinity, Infinity];
   const max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
