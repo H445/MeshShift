@@ -1,123 +1,172 @@
-# GLB → FBX
+# ModelShift
 
-Convert **GLB/GLTF** to **FBX 7.4** binary. Preserves PBR materials, textures, and skinning.
+ModelShift is an offline 3D asset converter with a static web UI, a Node.js CLI, and a reusable TypeScript API. Conversion happens locally through the bundled Assimp WebAssembly runtime; no model is uploaded to a server.
 
-- **Static web UI** — pure static SPA, no server. Open `dist/client/index.html` in any modern browser.
-- **Node CLI** — `pnpm dlx gltf-to-fbx model.glb` or bulk convert a directory.
-- **Tiny footprint** — vendored `assimpjs` (WebAssembly port of assimp with FBX export) does the heavy lifting. Same fidelity as native assimp.
+## Formats
 
-## How it works
+| Direction | Formats                                                             |
+| --------- | ------------------------------------------------------------------- |
+| Input     | GLB, glTF, FBX, OBJ, STL, PLY, Collada (`.dae`), 3D Studio (`.3ds`) |
+| Output    | FBX, GLB, glTF, OBJ, STL, PLY, Collada (`.dae`)                     |
 
-The conversion is a single hop through the vendored **assimpjs** (repalash fork, FBX export enabled):
+glTF and OBJ companion files are supported. Supply `.bin`, `.mtl`, and referenced textures alongside the primary file. The CLI discovers referenced sidecars automatically; the web app groups sidecars selected or dropped together.
 
-```
-GLB/GLTF  →  assimpjs (wasm)  →  FBX 7.4 binary
-```
-
-assimp is the industry-standard 3D format converter; the WebAssembly port is loaded once (~4 MB) and cached. PBR materials, textures, and skinning are all preserved by assimp's native GLB importer + FBX exporter. Skeletal animation is partially supported (see Limitations).
-
-## Features
-
-| Asset         | Support                                                               |
-| ------------- | --------------------------------------------------------------------- |
-| Meshes        | position, normal, UV0-1, vertex color, tangents                       |
-| PBR materials | baseColor, metallic, roughness, normal, emissive, occlusion           |
-| Textures      | embedded inside the FBX (toggle to reference by path)                 |
-| Skeletal anim | bone hierarchy + skin weights                                         |
-| Animation     | partially supported (some glTF animation channels may not round-trip) |
-| Bulk convert  | web multi-file (with zip download) + CLI recursive directory walk     |
+FBX, GLB, and glTF can retain scene hierarchy, materials, skinning, morph targets, and animation where Assimp supports the path. OBJ, STL, PLY, and DAE are exported as static mesh formats. OBJ exports an MTL file and extracts embedded textures when present.
 
 ## Quick start
 
-### Web UI
+Install dependencies once:
 
 ```bash
 pnpm install
-pnpm dev           # Vite dev server with HMR (dev only)
-pnpm build         # → dist/client/index.html (open directly in browser)
 ```
 
-### CLI
+Launch ModelShift from the repository root:
+
+Linux/macOS:
+
+```sh
+sh ./start.sh
+```
+
+Windows PowerShell:
+
+```powershell
+.\start.ps1
+```
+
+Both launchers start the local Vite development server at `http://localhost:5173/`. Additional Vite options are forwarded unchanged:
+
+```sh
+sh ./start.sh --port 5180 --host 0.0.0.0 --open
+```
+
+```powershell
+.\start.ps1 --port 5180 --host 0.0.0.0 --open
+```
+
+`pnpm dev` remains available as a package-manager alias for the same shared launcher.
+
+Build both surfaces:
 
 ```bash
-# Single file
-pnpm dlx gltf-to-fbx path/to/model.glb
-
-# Bulk: a whole directory
-pnpm dlx gltf-to-fbx ./models/ -o ./out/ -r
-
-# With zip output
-pnpm dlx gltf-to-fbx ./models/ -o ./out/ -r --zip
-
-# Local (no publish)
-pnpm install
-node dist/cli/gltf-to-fbx.mjs path/to/model.glb
+pnpm build
 ```
 
-## CLI reference
+The production web app is written to `dist/client/`. The CLI bundle is `dist/cli/modelshift.mjs`.
 
+## CLI
+
+```bash
+# FBX remains the default output for compatibility
+modelshift model.glb
+
+# Convert FBX to GLB
+modelshift model.fbx --format glb
+
+# Convert OBJ + referenced MTL/textures to FBX
+modelshift model.obj --format fbx
+
+# Recursively convert a directory to PLY
+modelshift ./models --recursive --format ply --output ./converted
+
+# Package all successful output files
+modelshift ./models --recursive --format gltf --output ./converted --zip
 ```
-Usage: gltf-to-fbx [options] <inputs...>
 
-Arguments:
-  inputs               One or more input .glb/.gltf files or directories
+Run the local bundle with:
 
-Options:
-  -o, --output <dir>   Output directory (default: same dir as input for single files)
-  -r, --recursive      Recurse into subdirectories
-  --parallel <n>       Concurrent conversions (default: CPU count - 1, max 8)
-  --no-embed-textures  Reference textures by path instead of embedding (passed to assimp)
-  --scale <n>          Apply uniform scale (default: 1)
-  --axis <axis>        Output axis (y-up|z-up) (default: "y-up")
-  --json               Emit a JSON sidecar per file with stats
-  --zip                Pack all outputs into a single .zip (bulk mode)
-  -v, --verbose        Verbose per-file progress to stderr
+```bash
+node dist/cli/modelshift.mjs model.obj --format glb
 ```
 
-**Exit codes:** 0 ok, 1 input error, 2 conversion error, 4 partial success (some files failed).
+Important options:
+
+```text
+-f, --format <format>   fbx | glb | gltf | obj | stl | ply | dae
+-o, --output <dir>      Output directory
+-r, --recursive         Recurse into input directories
+--parallel <n>          1–8 concurrent conversions
+--json                  Write conversion statistics
+--zip                   Package successful outputs
+--max-texture-size <n>  Resize textures during the optional GLB optimization pass
+--max-triangles <n>     Mesh triangle cap
+--merge-by-material     Merge meshes sharing a material
+--generate-lods <n>     Generate additional LOD levels
+```
+
+Exit codes are `0` for success, `1` for invalid/no input, `2` when every conversion fails, and `4` for partial success.
+
+## Core API
+
+```ts
+import { convertAsset } from './src/core/index.js';
+
+const result = await convertAsset(
+  [
+    { name: 'model.obj', data: objBytes },
+    { name: 'model.mtl', data: mtlBytes },
+    { name: 'albedo.png', data: textureBytes },
+  ],
+  { outputFormat: 'glb', name: 'model.obj' },
+);
+
+result.filename; // model.glb
+result.data; // primary output bytes
+result.files; // every output file
+result.stats;
+result.warnings;
+```
+
+`convertGltfToFbx()` remains as a backwards-compatible wrapper. `convertBatch()` accepts the same output options and supports companion files through each batch item's `files` property.
 
 ## Architecture
 
-```
-src/
-├── core/                 (framework-free converter — runs in Node AND browser)
-│   ├── index.ts          Public API: convertGltfToFbx(), convertBatch()
-│   ├── exportFbx.ts      GLB → assimpjs → FBX
-│   ├── assimpLoader.ts   Platform-agnostic types + impl re-export
-│   ├── assimpLoaderImpl.ts  __IS_BROWSER__-gated Node/browser loaders
-│   ├── parseGltf.ts      (web only) three.js GLTFLoader for preview
-│   ├── progress.ts       Progress callback normalizer
-│   └── errors.ts         Typed error classes
-├── client/               Vite SPA (static, no backend)
-│   ├── ui/         dropzone, viewers, queue, settings, toasts
-│   ├── lib/        zip helper (JSZip)
-│   └── main.ts     app entry
-├── cli/                  Commander-based CLI
-└── shared/               types + options
-public (vendored):
-├── assimpjs.js           Emscripten loader (~130 KB)
-└── assimpjs.wasm         Assimp core with FBX export (~4 MB)
+```text
+CLI ───────────┐
+               ├─ convertAsset() ─ Assimp WASM ─ native FBX/glTF/GLB writers
+Static web UI ─┘                    └──────────── local OBJ/STL/PLY/DAE writers
 ```
 
-The vendored assimpjs files live in `src/client/public/` and are copied to `dist/cli/` for the CLI build, and to `dist/client/` for the web build (served as `/assimpjs.js` and `/assimpjs.wasm`).
+All import paths are normalized through Assimp. The browser previews every supported source and result by generating a temporary GLB and loading it with three.js. Multi-file outputs download as ZIP archives.
 
-## Limitations (v1)
+## How LOD generation works
 
-- **External `.gltf` sidecars:** `.gltf` JSON must be self-contained with data URIs; use `.glb` when buffers or textures are separate files.
-- **Draco-compressed GLBs:** not supported (decompress with `gltf-transform` first).
-- **KTX2 / Basis textures:** not supported.
-- **FBX → GLTF:** not supported (one-way only).
-- **Animation:** assimp's FBX exporter has partial glTF-animation support. Some animation channels may not round-trip perfectly. Open the FBX in Blender/Maya/Unity to verify.
-- **Output details:** the FBX version, material model, and texture embedding strategy are chosen by assimp. If you need different output, use the assimp CLI directly on the converted file.
+LOD generation is a geometry-first pipeline. It favors a safe plateau over hitting a triangle target with holes, folded faces, broken UV islands, or a visibly damaged outline.
 
-## Testing
+1. **Prepare the source.** ModelShift normalizes the mesh to indexed geometry and keeps the high-detail source available for feature checks and optional texture projection. Each requested LOD is generated independently from LOD0, not from the previous LOD, so errors do not compound down the chain.
+2. **Choose the triangle budget.** Explicit per-level targets take precedence. Automatic targets use 50%, 30%, 20%, and 12% of the source for LOD1–LOD4; automatic LOD4 is additionally capped at 450 triangles. Targets never go below four triangles, and accepted levels must decrease monotonically.
+3. **Run progressive Meshopt passes.** The simplifier begins with conservative error tolerances and relaxes them only when necessary. Textured meshes use attribute-aware and UV-safe passes that weight UV continuity, preserve surviving normals and colors, lock severe UV discontinuities, and protect atlas borders. Scan-sized meshes switch to bounded, memory-aware passes and compact only the vertices selected by the new index buffer.
+4. **Repair topology.** If aggressive reduction makes an edge belong to more than two faces, ModelShift duplicates the vertices of the exceptional faces. This keeps every triangle visible while removing the non-manifold edge instead of dropping a face and creating a crack or hole.
+5. **Audit critical shape features.** The reduced surface is compared with the source using a BVH closest-point search. Missing points are scored by geometric deviation, local curvature, extremity, and silhouette importance. Exact duplicate positions at UV seams are treated as one source point so seams do not receive false curvature weight.
+6. **Run silhouette passes.** Three canonical snap views audit the XY, XZ, and YZ envelopes. Another 24 oblique views—eight azimuths at each of three elevations—approximate a free-orbit inspection. High-value missing anchors may be restored by splitting a face or a shared manifold edge.
+7. **Validate every repair.** Candidate splits must preserve face orientation and source-normal agreement, avoid degenerate or paper-thin triangles, maintain acceptable triangle quality, and avoid projected-area explosions in the three snap views. Restored anchors are spatially separated and bounded by a repair budget so the LOD remains meaningfully reduced.
+8. **Accept or safely plateau.** A level is accepted only when it is smaller than the preceding level and passes the safety checks. If no safe reduction is available, ModelShift clones the last safe geometry and reports a `safe plateau`; it does not substitute a destructive fallback.
+9. **Rebuild UVs and bake textures when available.** In the browser, textured LODs receive a new non-overlapping xatlas/watlas UV atlas. Atlas resolution scales with the LOD, while dense scans use a topology-based high-detail budget. Every atlas pixel is projected back to the intact source with a reusable BVH, closest-surface lookup, and forward/backward ray fallback.
+10. **Verify and finish the bake.** Projection coverage must touch enough distinct source faces and span the model on its active axes. Bounded dilation fills chart padding and missed samples, then material texture slots are resampled with the source transforms, wrapping modes, and bilinear filtering. If unwrapping, projection, validation, or baking fails, the simplified geometry keeps its safe source material/UV path.
+11. **Assemble the scene.** Generated meshes are named `_LOD1`, `_LOD2`, and so on and are added as siblings of LOD0 with the same transform. Keeping them as siblings lets an engine or viewer switch their visibility independently.
+
+For very large meshes, the same policy is applied with bounded repair and texture proxies, compact geometry allocation, and periodic browser yields to prevent the LOD job from monopolizing memory or the main thread.
+
+## Development
 
 ```bash
-pnpm test               # Vitest test suite
+pnpm typecheck
+pnpm lint
+pnpm test
+pnpm build
 ```
 
-The test suite covers: single-file conversion, bulk conversion with partial failures, error cases (oversized input, garbage input), progress callbacks, and round-trip validation (FBX → assjson via the same assimp engine).
+Set `MODELSHIFT_MAX_FILE_MB` to change the default 200 MB aggregate input limit. The legacy `G2F_MAX_FILE_MB` variable is still recognized.
+
+## Limitations
+
+- Format conversion cannot create features the destination format does not support.
+- OBJ, STL, PLY, and the current DAE writer do not contain skeletal animation or morph animation.
+- Assimp has partial support for some animation/material combinations; verify production assets in the target engine or DCC.
+- Draco and KTX2/Basis inputs are not decoded by the current preprocessing path.
+- USD/USDZ are not exposed because this bundled Assimp build does not provide a verified import/export path for them.
 
 ## License
 
-MIT.
+MIT

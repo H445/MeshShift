@@ -8,9 +8,9 @@ import { createSettings } from './ui/settings.js';
 import { createProfiles } from './ui/profiles.js';
 import { createViewer, type ViewerAxis } from './ui/viewer.js';
 import { progressToast, toast } from './ui/toast.js';
-import { downloadBlob, makeFbxZip } from './lib/zip.js';
+import { downloadBlob, makeOutputZip } from './lib/zip.js';
 import { detectLods, selectLod, renderLodSelector, hideLodSelector } from './ui/lod.js';
-import type { ConvertPhase, FbxResult, InspectResult } from '../shared/options.js';
+import type { AssetFile, ConvertPhase, ConvertResult, InspectResult } from '../shared/options.js';
 import type { OptimizeChange } from '../core/optimize.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
@@ -95,6 +95,7 @@ const queue = createQueue(queueHost, queueList);
 interface FileRow {
   id: string;
   file: File;
+  files: File[];
   /** Reuse the active preview parse instead of parsing large files again. */
   inspectPromise?: Promise<InspectResult>;
 }
@@ -110,7 +111,7 @@ let replaceActiveOnLoad = false;
 pickBtn.addEventListener('click', () => fileInput.click());
 loadBtn.addEventListener('click', () => {
   replaceActiveOnLoad = true;
-  fileInput.multiple = false;
+  fileInput.multiple = true;
   fileInput.click();
 });
 addMoreBtn.addEventListener('click', () => {
@@ -121,7 +122,7 @@ addMoreBtn.addEventListener('click', () => {
 fileInput.addEventListener('change', () => {
   const files = fileInput.files ? Array.from(fileInput.files) : [];
   if (files.length) {
-    if (replaceActiveOnLoad) replaceActiveFile(files[0]);
+    if (replaceActiveOnLoad) replaceActiveFiles(files);
     else addFiles(files);
   }
   replaceActiveOnLoad = false;
@@ -129,15 +130,48 @@ fileInput.addEventListener('change', () => {
   fileInput.value = '';
 });
 
+const PRIMARY_EXTENSIONS = ['glb', 'gltf', 'fbx', 'obj', 'stl', 'ply', 'dae', '3ds'];
+
+function extensionOf(name: string): string {
+  const dot = name.lastIndexOf('.');
+  return dot >= 0 ? name.slice(dot + 1).toLowerCase() : '';
+}
+
+function groupAssetFiles(files: File[]): Array<{ primary: File; files: File[] }> {
+  const primary = files.filter((file) => PRIMARY_EXTENSIONS.includes(extensionOf(file.name)));
+  const companions = files.filter((file) => !primary.includes(file));
+  return primary.map((file) => ({ primary: file, files: [file, ...companions] }));
+}
+
+function fileImportName(file: File): string {
+  return file.webkitRelativePath || file.name;
+}
+
+async function readAssetFiles(entry: FileRow): Promise<AssetFile[]> {
+  return Promise.all(
+    entry.files.map(async (file) => ({
+      name: fileImportName(file),
+      data: await file.arrayBuffer(),
+    })),
+  );
+}
+
 async function addFiles(files: File[]) {
   if (files.length === 0) return;
+  const groups = groupAssetFiles(files);
+  if (groups.length === 0) {
+    toast('No supported 3D asset was selected.', 'warn');
+    return;
+  }
   queueHost.hidden = false;
   const added: FileRow[] = [];
-  for (const f of files) {
-    const row = queue.add(f);
-    const entry = { id: row.id, file: f };
+  for (const group of groups) {
+    const row = queue.add(group.primary);
+    const entry = { id: row.id, file: group.primary, files: group.files };
     fileRows.push(entry);
     added.push(entry);
+    const totalBytes = group.files.reduce((sum, file) => sum + file.size, 0);
+    if (totalBytes !== group.primary.size) queue.update(row.id, { size: totalBytes });
   }
   // Auto-focus the last added file so the user sees a preview right away.
   const lastId = added[added.length - 1].id;
@@ -146,7 +180,7 @@ async function addFiles(files: File[]) {
   // update with metadata as soon as it's ready.
   for (const entry of added) {
     if (!entry.inspectPromise) {
-      trackInspection(entry, entry.file, inspectOne(entry.file));
+      trackInspection(entry, entry.file, inspectOne(entry));
     }
   }
 }
@@ -175,23 +209,29 @@ function resetOutputPreview() {
   wireframeOutputBtn.setAttribute('aria-pressed', 'false');
   outputEmpty.hidden = false;
   outputCanvas.hidden = true;
-  showOutputLabel('FBX preview');
+  showOutputLabel('Converted preview');
   hideStats();
   hideLodSelector(lodSelector, lodSliderHost);
 }
 
-function replaceActiveFile(file: File) {
+function replaceActiveFiles(files: File[]) {
+  const group = groupAssetFiles(files)[0];
+  if (!group) {
+    toast('No supported 3D asset was selected.', 'warn');
+    return;
+  }
   const entry = activeId ? fileRows.find((row) => row.id === activeId) : undefined;
   if (!entry) {
-    addFiles([file]);
+    addFiles(files);
     return;
   }
 
-  entry.file = file;
+  entry.file = group.primary;
+  entry.files = group.files;
   entry.inspectPromise = undefined;
   queue.update(entry.id, {
-    name: file.name,
-    size: file.size,
+    name: group.primary.name,
+    size: group.files.reduce((sum, file) => sum + file.size, 0),
     status: 'queued',
     progress: 0,
     phase: undefined,
@@ -205,10 +245,13 @@ function replaceActiveFile(file: File) {
   focusRow(entry.id);
 }
 
-async function inspectOne(file: File): Promise<InspectResult> {
-  const { inspectGltf } = await import('@core');
-  const buf = await file.arrayBuffer();
-  return inspectGltf(buf);
+async function inspectOne(entry: FileRow): Promise<InspectResult> {
+  const { convertAsset, inspectGltf } = await import('@core');
+  const normalized = await convertAsset(await readAssetFiles(entry), {
+    name: entry.file.name,
+    outputFormat: 'glb',
+  });
+  return inspectGltf(normalized.data);
 }
 
 function focusRow(id: string) {
@@ -227,9 +270,20 @@ function focusRow(id: string) {
   }
 }
 
-// Preview the input GLB/GLTF in the left viewer.
+// Normalize any supported input to GLB for the shared three.js preview.
 async function previewInput(entry: FileRow, file: File): Promise<InspectResult> {
-  const buf = await file.arrayBuffer();
+  const { convertAsset } = await import('@core');
+  const normalized = await convertAsset(await readAssetFiles(entry), {
+    name: file.name,
+    outputFormat: 'glb',
+  });
+  const glb = normalized.data;
+  const buf =
+    glb.buffer instanceof ArrayBuffer &&
+    glb.byteOffset === 0 &&
+    glb.byteLength === glb.buffer.byteLength
+      ? glb.buffer
+      : glb.slice().buffer;
   return new Promise((resolve, reject) => {
     new GLTFLoader().parse(
       buf,
@@ -259,14 +313,7 @@ async function previewInput(entry: FileRow, file: File): Promise<InspectResult> 
   });
 }
 
-// Preview the converted FBX in the right viewer (via FBX → glb2 round-trip).
-//
-// We do this by round-tripping the generated FBX back through assimp's
-// glb2 (binary glTF) export, then loading the result with three.js's
-// GLTFLoader. The round-trip is lossless: assimp reads its own FBX
-// output, fully reconstructs the scene (including textures, materials,
-// bones, animations), and re-emits it as a glb2 — and three.js's
-// GLTFLoader handles glb2 perfectly.
+// Preview any converted format by normalizing its output bundle to GLB.
 
 function showOutputLabel(text: string): void {
   const label = document.getElementById('output-label') as HTMLElement | null;
@@ -290,7 +337,7 @@ function handleLodsForScene(scene: unknown) {
   selectLod(info, 0);
 }
 
-async function previewFbx(result: FbxResult) {
+async function previewConverted(result: ConvertResult) {
   const request = ++outputPreviewRequest;
   outputEmpty.hidden = true;
   outputCanvas.hidden = false;
@@ -298,7 +345,7 @@ async function previewFbx(result: FbxResult) {
     const { getAssimp } = await import('@core');
     const ajs = await getAssimp();
     const fl = new ajs.FileList();
-    fl.AddFile(result.filename, new Uint8Array(result.data));
+    for (const file of result.files) fl.AddFile(file.name, new Uint8Array(file.data));
     const r = ajs.ConvertFileList(fl, 'glb2');
     if (!r.IsSuccess() || r.FileCount() === 0) {
       throw new Error(`assimp round-trip failed: ${r.GetErrorCode()}`);
@@ -312,7 +359,7 @@ async function previewFbx(result: FbxResult) {
       (gltf) => {
         if (request !== outputPreviewRequest) return;
         outputViewer.setScene(gltf.scene);
-        showOutputLabel(`Converted FBX · ${result.filename}`);
+        showOutputLabel(`Converted ${result.format.toUpperCase()} · ${result.filename}`);
         handleLodsForScene(gltf.scene);
       },
       (err) => {
@@ -327,7 +374,7 @@ async function previewFbx(result: FbxResult) {
     outputEmpty.hidden = false;
     outputCanvas.hidden = true;
     const msg = (err as Error)?.message ?? String(err);
-    toast(`FBX preview failed: ${msg}`, 'err');
+    toast(`Converted preview failed: ${msg}`, 'err');
   }
 }
 
@@ -470,14 +517,19 @@ function hideStats() {
 // Queue controls
 queue.onConvertAll(() => convertAll());
 queue.onClear(() => clearAll());
-queue.onDownloadOne((id) => {
+queue.onDownloadOne(async (id) => {
   const r = queue.list().find((row) => row.id === id)?.result;
-  if (r) downloadBlob(new Blob([r.data.slice().buffer]), r.filename);
+  if (!r) return;
+  if (r.files.length === 1) {
+    downloadBlob(new Blob([r.data.slice().buffer]), r.filename);
+  } else {
+    downloadBlob(await makeOutputZip([r]), `${r.filename.replace(/\.[^.]+$/, '')}.zip`);
+  }
 });
 queue.onDownloadAll(() => downloadAll());
 queue.onPreviewOne((id) => {
   const r = queue.list().find((row) => row.id === id)?.result;
-  if (r) previewFbx(r);
+  if (r) previewConverted(r);
 });
 queue.onRowClick((id) => {
   // Click on a row → focus it and show the source preview in INPUT.
@@ -615,7 +667,7 @@ function clearAll() {
   outputEmpty.hidden = false;
   inputCanvas.hidden = true;
   outputCanvas.hidden = true;
-  showOutputLabel('FBX preview');
+  showOutputLabel('Converted preview');
   hideStats();
   hideLodSelector(lodSelector, lodSliderHost);
   queue.showDownloadAllButton(false);
@@ -624,7 +676,7 @@ function clearAll() {
 /**
  * Apply the current optimization settings to the active file (or the
  * first selected queued file) and show the result in OUTPUT. Does
- * NOT write an FBX — it's a preview of the optimization pass.
+ * Does not write the selected output format; it previews the optimization pass.
  */
 async function previewOptimization() {
   const target = activeId ? fileRows.find((e) => e.id === activeId) : fileRows[0];
@@ -640,13 +692,18 @@ async function previewOptimization() {
   previewOptBtn.disabled = true;
   const task = progressToast(`Preview optimization · ${target.file.name}`);
   try {
-    const { optimizeGltf, inspectGltf } = await import('@core');
+    const { convertAsset, optimizeGltf, inspectGltf } = await import('@core');
     const opts = {
       ...readOptions(),
       onProgress: (phase: ConvertPhase, pct: number) => updateTaskToast(task, phase, pct),
     };
     updateTaskToast(task, 'parse', 0.05, 'Reading source…');
-    const buf = await target.file.arrayBuffer();
+    const normalized = await convertAsset(await readAssetFiles(target), {
+      ...opts,
+      name: target.file.name,
+      outputFormat: 'glb',
+    });
+    const buf = normalized.data;
     updateTaskToast(task, 'inspect', 0, 'Inspecting source…');
     // File rows are inspected when they enter the queue. Reuse that result so
     // previewing does not parse and decode the same source a second time right
@@ -704,7 +761,7 @@ async function convertAll() {
 
   // Dynamic import keeps the initial bundle small — assimpjs is only
   // loaded when the user actually starts a conversion.
-  const { convertGltfToFbx, optimizeGltf } = await import('@core');
+  const { convertAsset, optimizeGltf } = await import('@core');
 
   // Read settings once
   const baseOpts = readOptions();
@@ -729,27 +786,37 @@ async function convertAll() {
     try {
       queue.update(entry.id, { status: 'converting', progress: 0 });
       updateBatchProgress(entry.id, 'parse', 0);
-      let convertBuf: ArrayBuffer | Uint8Array = await entry.file.arrayBuffer();
+      let sourceFiles: AssetFile[] = await readAssetFiles(entry);
       // capture pre-stats from the row's inspect field if present
       const row = queue.list().find((r) => r.id === entry.id);
       const beforeStats: InspectResult | undefined = row?.inspect;
       if (hasOptimization) {
         queue.update(entry.id, { phase: 'optimizing' });
-        const opt = await optimizeGltf(convertBuf, {
+        const normalized = await convertAsset(sourceFiles, {
+          ...baseOpts,
+          name: entry.file.name,
+          outputFormat: 'glb',
+        });
+        const opt = await optimizeGltf(normalized.data, {
           ...baseOpts,
           onProgress: (phase: ConvertPhase, pct: number) => {
             queue.update(entry.id, { progress: pct, phase });
             updateBatchProgress(entry.id, phase, pct);
           },
         });
-        convertBuf = opt.data;
+        sourceFiles = [
+          {
+            name: `${entry.file.name.replace(/\.[^.]+$/, '')}.glb`,
+            data: opt.data,
+          },
+        ];
         // Render the diff for the FIRST optimized file we see, so the
         // user gets a sense of what the pass did.
         if (!autoPreviewed && beforeStats) {
           renderStats(beforeStats, opt.stats, opt.changes);
         }
       }
-      const result = await convertGltfToFbx(convertBuf, {
+      const result = await convertAsset(sourceFiles, {
         ...baseOpts,
         name: entry.file.name,
         onProgress: (phase: ConvertPhase, pct: number) => {
@@ -761,8 +828,7 @@ async function convertAll() {
       taskProgress.set(entry.id, 1);
       if (!autoPreviewed) {
         autoPreviewed = true;
-        // Render the actual generated FBX in the OUTPUT pane.
-        previewFbx(result);
+        previewConverted(result);
       }
     } catch (err) {
       const e = err as { name?: string; message?: string };
@@ -789,7 +855,9 @@ async function convertAll() {
   if (masterCheck) masterCheck.disabled = false;
 
   const succeeded = queue.list().filter((r) => r.status === 'done');
-  if (succeeded.length > 1) queue.showDownloadAllButton(true);
+  if (succeeded.length > 1 || succeeded.some((row) => (row.result?.files.length ?? 0) > 1)) {
+    queue.showDownloadAllButton(true);
+  }
   const succeededTargets = targets.filter((row) =>
     queue.list().some((item) => item.id === row.id && item.status === 'done'),
   );
@@ -809,11 +877,15 @@ async function downloadAll() {
   const items = queue.list().filter((r) => r.status === 'done' && r.result);
   if (items.length === 0) return;
   const results = items.map((r) => r.result!);
+  const fileCount = results.reduce((sum, result) => sum + result.files.length, 0);
   const blob =
-    results.length === 1 ? new Blob([results[0].data.slice().buffer]) : await makeFbxZip(results);
-  const name = results.length === 1 ? results[0].filename : `gltf-to-fbx-${Date.now()}.zip`;
+    fileCount === 1 ? new Blob([results[0].data.slice().buffer]) : await makeOutputZip(results);
+  const name = fileCount === 1 ? results[0].filename : `modelshift-${Date.now()}.zip`;
   downloadBlob(blob, name);
-  toast(results.length === 1 ? 'Downloaded FBX' : `Downloaded ${results.length} FBXs as zip`, 'ok');
+  toast(
+    fileCount === 1 ? 'Downloaded converted asset' : `Downloaded ${fileCount} files as ZIP`,
+    'ok',
+  );
 }
 
 // Keyboard: Esc closes settings

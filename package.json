@@ -1,10 +1,10 @@
 {
-  "name": "gltf-to-fbx",
-  "version": "0.1.0",
-  "description": "Convert GLB/GLTF (with PBR materials, textures, skeletal animation, blend shapes) to FBX 7.4. CLI + static web UI, no server.",
+  "name": "modelshift",
+  "version": "0.2.0",
+  "description": "Offline conversion between mainstream 3D asset formats. CLI + static web UI, no server.",
   "type": "module",
   "bin": {
-    "gltf-to-fbx": "./dist/cli/gltf-to-fbx.mjs"
+    "modelshift": "./dist/cli/modelshift.mjs"
   },
   "files": [
     "dist",

@@ -2,7 +2,7 @@
 /**
  * Production build — runs the CLI tsup build and the Vite client build in parallel.
  * Output:
- *   - dist/cli/gltf-to-fbx.mjs        (CLI, Node 20+, includes vendored assimpjs)
+ *   - dist/cli/modelshift.mjs         (CLI, Node 20+, includes vendored assimpjs)
  *   - dist/cli/assimpjs.js, .wasm     (vendored engine, ~4 MB total)
  *   - dist/client/                    (static SPA — open index.html or host anywhere)
  */
@@ -35,7 +35,7 @@ try {
     run('Building web client', viteCli, ['build']),
   ]);
   console.log('\n✅ Build complete.');
-  console.log('   • dist/cli/gltf-to-fbx.mjs    (CLI)');
+  console.log('   • dist/cli/modelshift.mjs     (CLI)');
   console.log('   • dist/client/index.html       (web UI — open in browser)');
 } catch (err) {
   console.error('\n❌ Build failed:', err.message);

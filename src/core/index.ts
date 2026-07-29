@@ -1,44 +1,37 @@
 /**
- * Public core API. Used by both the CLI and the web client.
- *
- *   import { convertGltfToFbx, convertBatch } from '@core';
- *
- * The conversion is a single hop: GLB → assimpjs (vendored repalash fork)
- * → FBX 7.4 binary. No three.js round-trip, no DOM shim, no extra steps.
- *
- *   - Works in Node and the browser
- *   - ~4 MB wasm payload, loaded once and cached
- *   - All material / texture / animation / skin data is preserved (assimp
- *     does the heavy lifting; we don't re-interpret the scene ourselves)
+ * Public format-agnostic conversion API shared by the CLI and web client.
  */
-
-import { exportFbx } from './exportFbx.js';
-import { inspectGltf } from './inspect.js';
+import { exportAsset, readAssimpScene, statsFromAssimpScene } from './exportAsset.js';
 import { InputTooLargeError } from './errors.js';
 import { makeProgress } from './progress.js';
+import { requireOutputFormat } from './formats.js';
 import {
   DEFAULT_OPTIONS,
+  type AssetFile,
   type BatchFailure,
   type BatchItem,
   type BatchResult,
   type ConvertOptions,
-  type ConvertStats,
+  type ConvertResult,
   type ConvertWarning,
-  type FbxResult,
+  type OutputFormat,
 } from '../shared/options.js';
 
 export * from '../shared/options.js';
 export * from './errors.js';
+export * from './formats.js';
 export { getAssimp } from './assimpLoader.js';
+export { exportAsset, readAssimpScene, statsFromAssimpScene } from './exportAsset.js';
 export { inspectGltf, inspectScene } from './inspect.js';
 export { optimizeGltf, type OptimizeResult, type OptimizeChange } from './optimize.js';
 
-const DEFAULT_MAX_INPUT_BYTES = 200 * 1024 * 1024; // 200 MB
+const DEFAULT_MAX_INPUT_BYTES = 200 * 1024 * 1024;
 
 function maxInputBytes(): number {
-  // `process` is undefined in the browser; guard the env-var lookup.
   const configuredMb =
-    typeof process !== 'undefined' && process.env ? process.env.G2F_MAX_FILE_MB : undefined;
+    typeof process !== 'undefined' && process.env
+      ? (process.env.MODELSHIFT_MAX_FILE_MB ?? process.env.G2F_MAX_FILE_MB)
+      : undefined;
   if (configuredMb === undefined) return DEFAULT_MAX_INPUT_BYTES;
   const parsedMb = Number(configuredMb);
   return Number.isFinite(parsedMb) && parsedMb >= 0
@@ -46,101 +39,108 @@ function maxInputBytes(): number {
     : DEFAULT_MAX_INPUT_BYTES;
 }
 
-function suggestFilename(name: string): string {
-  const base = name.replace(/\.(glb|gltf)$/i, '');
-  return `${base}.fbx`;
+function asAssetFiles(
+  input: ArrayBuffer | Uint8Array | AssetFile | AssetFile[],
+  fallbackName: string,
+): AssetFile[] {
+  if (Array.isArray(input)) return input;
+  if (typeof input === 'object' && input !== null && 'name' in input && 'data' in input) {
+    return [input as AssetFile];
+  }
+  return [{ name: fallbackName, data: input as ArrayBuffer | Uint8Array }];
 }
 
-function emptyStats(inputBytes: number): ConvertStats {
-  return {
-    meshes: 0,
-    materials: 0,
-    textures: 0,
-    animations: 0,
-    bones: 0,
-    morphTargets: 0,
-    triangles: 0,
-    vertices: 0,
-    textureMaxSize: 0,
-    inputBytes,
-    outputBytes: 0,
-    durationMs: 0,
-  };
+function byteLength(file: AssetFile): number {
+  return file.data.byteLength;
+}
+
+export interface ConvertAssetOptions extends ConvertOptions {
+  /** Name used for the output basename. For byte-only input it also selects the importer. */
+  name?: string;
 }
 
 /**
- * Convert a single GLB/GLTF to FBX.
+ * Convert one 3D asset. Pass an AssetFile[] when the source has companion
+ * resources such as .gltf + .bin or .obj + .mtl + textures.
  */
-export async function convertGltfToFbx(
-  data: ArrayBuffer | Uint8Array,
-  options: ConvertOptions & { name?: string } = {},
-): Promise<FbxResult> {
+export async function convertAsset(
+  input: ArrayBuffer | Uint8Array | AssetFile | AssetFile[],
+  options: ConvertAssetOptions = {},
+): Promise<ConvertResult> {
   const opts = { ...DEFAULT_OPTIONS, ...options };
-  const started = performance.now();
-  const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
-  const inputBytes = bytes.byteLength;
+  const format = opts.outputFormat as OutputFormat;
+  const definition = requireOutputFormat(format);
+  const fallbackName = options.name ?? 'model.glb';
+  const files = asAssetFiles(input, fallbackName);
+  if (files.length === 0) throw new TypeError('At least one input file is required.');
 
+  const primaryName = options.name ?? files[0].name;
+  const inputBytes = files.reduce((sum, file) => sum + byteLength(file), 0);
   const maxBytes = maxInputBytes();
-  if (inputBytes > maxBytes) {
-    throw new InputTooLargeError(inputBytes, maxBytes);
-  }
+  if (inputBytes > maxBytes) throw new InputTooLargeError(inputBytes, maxBytes);
 
+  const started = performance.now();
   const progress = makeProgress(opts);
   progress('parse', 0);
+  const scene = await readAssimpScene(files);
+  progress('parse', 1);
+  progress('inspect', 0.5);
 
-  // Inspect the input so we can surface accurate stats in the result.
-  // This runs in parallel-ish with the export below; the assimp call is
-  // already on its own microtask.
-  const inspectPromise = inspectGltf(bytes).catch(() => null);
-
-  // Single hop: bytes → assimpjs → FBX
-  const fbxData = await exportFbx(bytes, options.name ?? 'model.glb', opts);
-  progress('export', 1);
-
-  const inspectResult = await inspectPromise;
-  const stats: ConvertStats = {
-    ...emptyStats(inputBytes),
-    outputBytes: fbxData.byteLength,
+  const outputFiles = await exportAsset(files, primaryName, format, opts, scene);
+  const primary =
+    outputFiles.find((file) => file.name.toLowerCase().endsWith(`.${definition.extension}`)) ??
+    outputFiles[0];
+  const outputBytes = outputFiles.reduce((sum, file) => sum + file.data.byteLength, 0);
+  const stats = {
+    ...statsFromAssimpScene(scene, inputBytes),
+    outputBytes,
     durationMs: performance.now() - started,
-    meshes: inspectResult?.meshes ?? 0,
-    materials: inspectResult?.materials ?? 0,
-    textures: inspectResult?.textures ?? 0,
-    animations: inspectResult?.animations ?? 0,
-    bones: inspectResult?.bones ?? 0,
-    morphTargets: inspectResult?.morphTargets ?? 0,
-    triangles: inspectResult?.triangles ?? 0,
-    vertices: inspectResult?.vertices ?? 0,
-    textureMaxSize: inspectResult?.textureMaxSize ?? 0,
   };
   progress('inspect', 1);
 
   const warnings: ConvertWarning[] = [];
-  if (fbxData.byteLength < 64) {
+  if (primary.data.byteLength < 64) {
     warnings.push({
       phase: 'export',
-      message: 'Output is unusually small — input may be empty or invalid.',
+      message: 'Primary output is unusually small — verify the source contains geometry.',
     });
+  }
+  if (format === 'obj' || format === 'stl' || format === 'ply' || format === 'dae') {
+    if ((scene.animations?.length ?? 0) > 0) {
+      warnings.push({
+        phase: 'export',
+        message: `${format.toUpperCase()} is a static mesh format; animation is not included.`,
+      });
+    }
   }
 
   return {
-    data: fbxData,
+    data: primary.data,
+    files: outputFiles,
+    format,
     stats,
     warnings,
-    filename: suggestFilename(options.name ?? 'model.glb'),
+    filename: primary.name,
   };
 }
 
+/**
+ * Backwards-compatible GLB/GLTF → FBX wrapper.
+ */
+export async function convertGltfToFbx(
+  data: ArrayBuffer | Uint8Array,
+  options: ConvertOptions & { name?: string } = {},
+): Promise<ConvertResult> {
+  return convertAsset(data, { ...options, outputFormat: 'fbx' });
+}
+
 export interface ConvertBatchOptions extends ConvertOptions {
-  /** Concurrency cap (default 4). */
   maxConcurrency?: number;
 }
 
-type IndexedBatchResult = { ok: true; result: FbxResult } | { ok: false; failure: BatchFailure };
+type IndexedBatchResult =
+  { ok: true; result: ConvertResult } | { ok: false; failure: BatchFailure };
 
-/**
- * Bulk convert. Concurrency-capped `Promise.all`-style loop.
- * Works in both Node and the browser.
- */
 export async function convertBatch(
   items: BatchItem[],
   options: ConvertBatchOptions = {},
@@ -155,37 +155,40 @@ export async function convertBatch(
   let cursor = 0;
   async function worker() {
     while (cursor < items.length) {
-      const idx = cursor++;
-      const item = items[idx];
+      const index = cursor++;
+      const item = items[index];
       try {
-        const wrapped: ConvertOptions = {
+        const companionFiles = item.files ?? [];
+        const files = companionFiles.some((file) => file.name === item.name)
+          ? companionFiles
+          : [{ name: item.name, data: item.data }, ...companionFiles];
+        const result = await convertAsset(files, {
           ...options,
-          onProgress: (phase, pct) => onItemProgress?.(idx, phase, pct),
-        };
-        const result = await convertGltfToFbx(item.data, { ...wrapped, name: item.name });
-        results[idx] = { ok: true, result };
-      } catch (err) {
-        const e = err as { name?: string; message?: string };
-        results[idx] = {
+          name: item.name,
+          onProgress: (phase, pct) => onItemProgress?.(index, phase, pct),
+        });
+        results[index] = { ok: true, result };
+      } catch (error) {
+        const detail = error as { name?: string; message?: string };
+        results[index] = {
           ok: false,
           failure: {
             name: item.name,
-            error: { name: e.name ?? 'Error', message: e.message ?? String(err) },
+            error: {
+              name: detail.name ?? 'Error',
+              message: detail.message ?? String(error),
+            },
           },
         };
       }
     }
   }
 
-  const workers = Array.from({ length: Math.min(concurrency, items.length) }, worker);
-  await Promise.all(workers);
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, () => worker()));
 
-  // Each worker writes into its input slot, so duplicate filenames are safe
-  // and no completion-order sort or name-based lookup is needed.
-  const succeeded: FbxResult[] = [];
+  const succeeded: ConvertResult[] = [];
   const failed: BatchFailure[] = [];
-  for (let index = 0; index < results.length; index++) {
-    const result = results[index];
+  for (const result of results) {
     if (!result) continue;
     if (result.ok) succeeded.push(result.result);
     else failed.push(result.failure);

@@ -1,25 +1,29 @@
 /**
  * Typed error classes for the converter.
- * All errors thrown by `convertGltfToFbx` and friends are subclasses of `GltfToFbxError`.
+ * All conversion errors share this base class. The legacy name remains
+ * exported so existing consumers do not break after the ModelShift rename.
  */
 
-export class GltfToFbxError extends Error {
+export class ModelShiftError extends Error {
   override readonly name: string;
   readonly phase?: string;
-  constructor(message: string, name = 'GltfToFbxError', phase?: string) {
+  constructor(message: string, name = 'ModelShiftError', phase?: string) {
     super(message);
     this.name = name;
     this.phase = phase;
   }
 }
 
-export class ParseError extends GltfToFbxError {
+/** @deprecated Use ModelShiftError. */
+export { ModelShiftError as GltfToFbxError };
+
+export class ParseError extends ModelShiftError {
   constructor(message: string) {
     super(message, 'ParseError', 'parse');
   }
 }
 
-export class UnsupportedExtensionError extends GltfToFbxError {
+export class UnsupportedExtensionError extends ModelShiftError {
   readonly extension: string;
   constructor(extension: string) {
     super(
@@ -31,19 +35,19 @@ export class UnsupportedExtensionError extends GltfToFbxError {
   }
 }
 
-export class ExportError extends GltfToFbxError {
+export class ExportError extends ModelShiftError {
   constructor(message: string) {
     super(message, 'ExportError', 'export');
   }
 }
 
-export class PostProcessError extends GltfToFbxError {
+export class PostProcessError extends ModelShiftError {
   constructor(message: string) {
     super(message, 'PostProcessError', 'post');
   }
 }
 
-export class InputTooLargeError extends GltfToFbxError {
+export class InputTooLargeError extends ModelShiftError {
   readonly sizeBytes: number;
   readonly maxBytes: number;
   constructor(sizeBytes: number, maxBytes: number) {

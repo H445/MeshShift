@@ -1,76 +1,61 @@
 #!/usr/bin/env node
-/**
- * CLI entry point. Built to dist/cli/gltf-to-fbx.mjs.
- * Supports single-file and bulk conversion via `pnpm dlx gltf-to-fbx`.
- *
- * Conversion path: GLB/GLTF → optional three.js optimization pass
- * (decimation / merge / LODs / texture resize) → assimpjs
- * (repalash fork, FBX export enabled) → FBX 7.4 binary.
- */
 import { Command } from 'commander';
 import { readFile, writeFile, mkdir, stat, readdir } from 'node:fs/promises';
-import { resolve, basename, extname, join, dirname } from 'node:path';
+import { resolve, basename, extname, join, dirname, relative } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { cpus } from 'node:os';
 import JSZip from 'jszip';
+import {
+  INPUT_FORMATS,
+  OUTPUT_FORMATS,
+  isSupportedInputName,
+  outputFilename,
+  type AssetFile,
+  type ConvertPhase,
+  type ConvertResult,
+  type OutputFormat,
+} from '../core/index.js';
 
 const program = new Command();
+const inputList = INPUT_FORMATS.map((format) => `.${format.extension}`).join(', ');
+const outputList = OUTPUT_FORMATS.map((format) => format.id).join(', ');
 
 program
-  .name('gltf-to-fbx')
-  .description('Convert GLB/GLTF to FBX 7.4. Preserves PBR materials, textures, and skinning.')
-  .argument('<inputs...>', 'One or more input .glb/.gltf files or directories')
-  .option('-o, --output <dir>', 'Output directory (default: same dir as input for single files)')
+  .name('modelshift')
+  .description('Offline conversion between mainstream 3D asset formats.')
+  .argument('<inputs...>', `One or more files or directories (${inputList})`)
+  .option('-f, --format <format>', `Output format: ${outputList}`, 'fbx')
+  .option('-o, --output <dir>', 'Output directory (default: same directory as each input)')
   .option('-r, --recursive', 'Recurse into subdirectories', false)
   .option('--parallel <n>', 'Concurrent conversions (default: CPU count - 1, max 8)', Number)
-  .option(
-    '--no-embed-textures',
-    'Reference textures by path instead of embedding (passed to assimp)',
-  )
+  .option('--no-embed-textures', 'Keep textures as companion files when supported')
   .option('--scale <n>', 'Apply uniform scale (default: 1)', Number)
   .option('--axis <axis>', 'Output axis (y-up|z-up)', 'y-up')
-  .option('--json', 'Emit a JSON sidecar per file with stats', false)
-  .option('--zip', 'Pack all outputs into a single .zip (bulk mode)', false)
+  .option('--json', 'Emit a JSON sidecar per asset with stats', false)
+  .option('--zip', 'Pack successful outputs into modelshift.zip', false)
   .option('-v, --verbose', 'Verbose per-file progress to stderr', false)
-  // --- Game-engine optimization ---
-  .option(
-    '--target-engine <engine>',
-    'Target engine preset (auto|unity|unreal|godot). Sets axis + texture size defaults.',
-    'auto',
-  )
+  .option('--target-engine <engine>', 'Engine preset (auto|unity|unreal|godot)', 'auto')
   .option(
     '--max-texture-size <px>',
-    'Downsample textures above this size (256|512|1024|2048|4096|8192). 8192 = no resize.',
+    'Maximum texture dimension; 8192 disables resizing',
     Number,
-    2048,
+    8192,
   )
-  .option(
-    '--max-triangles <n>',
-    'Decimate any mesh above N triangles (0 = no decimation, requires three.js preprocessing)',
-    Number,
-    0,
-  )
-  .option(
-    '--merge-by-material',
-    'Merge meshes that share a material into a single draw call (three.js preprocessing)',
-    false,
-  )
-  .option(
-    '--generate-lods <n>',
-    'Generate N LOD levels in addition to LOD0 (three.js preprocessing)',
-    Number,
-    0,
-  )
+  .option('--max-triangles <n>', 'Triangle cap per mesh; 0 disables decimation', Number, 0)
+  .option('--merge-by-material', 'Merge meshes sharing a material', false)
+  .option('--generate-lods <n>', 'Generate N additional LOD levels', Number, 0)
   .option('--animation <filter>', 'Animation filter (all|skeletal|none)', 'all')
-  .option('--no-morph', 'Skip morph target export')
+  .option('--no-morph', 'Skip morph targets')
   .showHelpAfterError();
 
 program.parse(process.argv);
-
 const opts = program.opts();
-const inputs: string[] = program.args as string[];
+const inputs = program.args as string[];
 
 function validateOptions(): void {
+  if (!OUTPUT_FORMATS.some((format) => format.id === opts.format)) {
+    program.error(`--format must be one of ${outputList}.`);
+  }
   if (
     opts.parallel !== undefined &&
     (!Number.isInteger(opts.parallel) || opts.parallel < 1 || opts.parallel > 8)
@@ -99,102 +84,142 @@ function validateOptions(): void {
     program.error('--animation must be one of all, skeletal, or none.');
   }
 }
-
 validateOptions();
 
 interface FileJob {
   inputPath: string;
-  outputPath: string;
+  outputDir: string;
   name: string;
 }
 
 interface JobResult {
   job: FileJob;
   ok: boolean;
-  outputBytes?: number;
+  outputs?: Array<{ path: string; data: Uint8Array }>;
   durationMs: number;
-  stats?: Record<string, unknown>;
+  result?: ConvertResult;
   error?: { name: string; message: string };
 }
 
-async function collectJobs(inputs: string[], recursive: boolean): Promise<FileJob[]> {
-  const out: FileJob[] = [];
-  for (const inp of inputs) {
-    const abs = resolve(inp);
-    const s = await stat(abs).catch(() => null);
-    if (!s) {
-      console.error(`✗ not found: ${inp}`);
-      continue;
-    }
-    if (s.isDirectory()) {
-      const entries = await readdir(abs, { withFileTypes: true });
-      for (const e of entries) {
-        const p = join(abs, e.name);
-        if (e.isDirectory() && recursive) {
-          out.push(...(await collectJobs([p], recursive)));
-        } else if (e.isFile() && isGltf(e.name)) {
-          out.push(makeJob(p));
-        }
-      }
-    } else if (s.isFile() && isGltf(abs)) {
-      out.push(makeJob(abs));
-    } else {
-      console.error(`✗ skipped (not a .glb/.gltf): ${inp}`);
-    }
-  }
-  return out;
-}
-
-function isGltf(name: string): boolean {
-  const n = name.toLowerCase();
-  return n.endsWith('.glb') || n.endsWith('.gltf');
-}
-
 function makeJob(inputPath: string): FileJob {
-  const base = basename(inputPath, extname(inputPath));
-  const outputDir = opts.output ? resolve(opts.output) : dirname(inputPath);
   return {
     inputPath,
-    outputPath: join(outputDir, `${base}.fbx`),
+    outputDir: opts.output ? resolve(opts.output) : dirname(inputPath),
     name: basename(inputPath),
   };
 }
 
-function assertUniqueOutputs(jobs: FileJob[]): void {
+async function collectJobs(paths: string[], recursive: boolean): Promise<FileJob[]> {
+  const jobs: FileJob[] = [];
+  for (const input of paths) {
+    const absolute = resolve(input);
+    const info = await stat(absolute).catch(() => null);
+    if (!info) {
+      console.error(`✗ not found: ${input}`);
+      continue;
+    }
+    if (info.isDirectory()) {
+      for (const entry of await readdir(absolute, { withFileTypes: true })) {
+        const path = join(absolute, entry.name);
+        if (entry.isDirectory() && recursive) {
+          jobs.push(...(await collectJobs([path], true)));
+        } else if (entry.isFile() && isSupportedInputName(entry.name)) {
+          jobs.push(makeJob(path));
+        }
+      }
+    } else if (info.isFile() && isSupportedInputName(absolute)) {
+      jobs.push(makeJob(absolute));
+    } else {
+      console.error(`✗ skipped (unsupported 3D input): ${input}`);
+    }
+  }
+  return jobs;
+}
+
+function referencesFrom(name: string, data: Uint8Array): string[] {
+  const extension = extname(name).toLowerCase();
+  const text = new TextDecoder().decode(data);
+  if (extension === '.gltf') {
+    try {
+      const document = JSON.parse(text) as {
+        buffers?: Array<{ uri?: string }>;
+        images?: Array<{ uri?: string }>;
+      };
+      return [...(document.buffers ?? []), ...(document.images ?? [])]
+        .map((item) => item.uri)
+        .filter((uri): uri is string => Boolean(uri && !/^(data:|https?:)/i.test(uri)));
+    } catch {
+      return [];
+    }
+  }
+  if (extension === '.obj') {
+    return Array.from(text.matchAll(/^\s*mtllib\s+(.+)$/gim), (match) => match[1].trim());
+  }
+  if (extension === '.mtl') {
+    return Array.from(
+      text.matchAll(/^\s*(?:map_\w+|bump|disp|decal)\s+(.+)$/gim),
+      (match) => match[1].trim().split(/\s+/).pop() ?? '',
+    ).filter(Boolean);
+  }
+  if (extension === '.dae') {
+    return Array.from(text.matchAll(/<init_from>\s*([^<]+)\s*<\/init_from>/gim), (match) =>
+      match[1].trim(),
+    );
+  }
+  return [];
+}
+
+async function loadAssetFiles(inputPath: string): Promise<AssetFile[]> {
+  const root = dirname(inputPath);
+  const queue = [inputPath];
+  const seen = new Set<string>();
+  const files: AssetFile[] = [];
+  while (queue.length > 0) {
+    const path = resolve(queue.shift()!);
+    const key = path.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const data = new Uint8Array(await readFile(path));
+    const virtualName = relative(root, path).replace(/\\/g, '/');
+    files.push({ name: virtualName, data });
+    for (const uri of referencesFrom(path, data)) {
+      const reference = resolve(dirname(path), decodeURIComponent(uri));
+      if (
+        await stat(reference)
+          .then((value) => value.isFile())
+          .catch(() => false)
+      ) {
+        queue.push(reference);
+      } else if (opts.verbose) {
+        console.error(`    missing companion: ${uri}`);
+      }
+    }
+  }
+  return files;
+}
+
+function assertUniqueOutputs(jobs: FileJob[], format: OutputFormat): void {
   const seen = new Map<string, string>();
   for (const job of jobs) {
-    const outputKey = resolve(job.outputPath).toLowerCase();
-    const previous = seen.get(outputKey);
+    const path = resolve(job.outputDir, outputFilename(job.name, format)).toLowerCase();
+    const previous = seen.get(path);
     if (previous) {
       program.error(
-        `Output collision: "${previous}" and "${job.inputPath}" both map to "${job.outputPath}".`,
+        `Output collision: "${previous}" and "${job.inputPath}" both map to "${path}".`,
       );
     }
-    seen.set(outputKey, job.inputPath);
-  }
-
-  if (opts.zip) {
-    const zipEntries = new Map<string, string>();
-    for (const job of jobs) {
-      const entry = basename(job.outputPath).toLowerCase();
-      const previous = zipEntries.get(entry);
-      if (previous) {
-        program.error(
-          `Zip entry collision: "${previous}" and "${job.inputPath}" both map to "${basename(job.outputPath)}".`,
-        );
-      }
-      zipEntries.set(entry, job.inputPath);
-    }
+    seen.set(path, job.inputPath);
   }
 }
 
-async function runInline(job: FileJob, index: number, total: number): Promise<JobResult> {
-  const t0 = performance.now();
+async function runJob(job: FileJob, index: number, total: number): Promise<JobResult> {
+  const started = performance.now();
   try {
-    const { convertGltfToFbx, optimizeGltf } = await import('../core/index.js');
-    const data = await readFile(job.inputPath);
-
-    const convertOpts = {
+    const { convertAsset, optimizeGltf } = await import('../core/index.js');
+    let sourceFiles = await loadAssetFiles(job.inputPath);
+    const outputFormat = opts.format as OutputFormat;
+    const convertOptions = {
+      outputFormat,
       name: job.name,
       targetEngine: opts.targetEngine,
       embedTextures: opts.embedTextures !== false,
@@ -204,42 +229,48 @@ async function runInline(job: FileJob, index: number, total: number): Promise<Jo
       animationFilter: opts.animation,
       morphTargets: opts.morph !== false,
       maxTriangles: opts.maxTriangles,
-      mergeByMaterial: !!opts.mergeByMaterial,
+      mergeByMaterial: Boolean(opts.mergeByMaterial),
       generateLODs: opts.generateLods,
-      onProgress: (phase: string, pct: number) => {
-        if (!opts.verbose) return;
-        const p = Math.round(pct * 100);
-        process.stderr.write(`  [${index + 1}/${total}] ${job.name} ${phase} ${p}%\n`);
+      onProgress: (phase: ConvertPhase, pct: number) => {
+        if (opts.verbose) {
+          process.stderr.write(
+            `  [${index + 1}/${total}] ${job.name} ${phase} ${Math.round(pct * 100)}%\n`,
+          );
+        }
       },
     };
+    const optimize =
+      convertOptions.maxTriangles > 0 ||
+      convertOptions.mergeByMaterial ||
+      convertOptions.generateLODs > 0 ||
+      convertOptions.maxTextureSize < 8192;
 
-    const hasOptimization =
-      convertOpts.maxTriangles! > 0 ||
-      convertOpts.mergeByMaterial === true ||
-      convertOpts.generateLODs! > 0 ||
-      (convertOpts.maxTextureSize ?? 2048) < 8192;
-
-    let convertBuf: Uint8Array = data;
-    if (hasOptimization) {
-      if (opts.verbose) process.stderr.write(`  [${index + 1}/${total}] ${job.name} optimizing…\n`);
-      const opt = await optimizeGltf(data, convertOpts);
-      convertBuf = opt.data;
-      if (opts.verbose) {
-        process.stderr.write(
-          `  [${index + 1}/${total}] ${job.name} optimized (${opt.changes.length} change${opt.changes.length === 1 ? '' : 's'})\n`,
-        );
-        for (const c of opt.changes) {
-          process.stderr.write(`    [${c.kind}] ${c.detail}\n`);
-        }
-      }
+    if (optimize) {
+      if (opts.verbose) console.error(`  [${index + 1}/${total}] ${job.name} normalizing…`);
+      const normalized = await convertAsset(sourceFiles, {
+        ...convertOptions,
+        outputFormat: 'glb',
+      });
+      const optimized = await optimizeGltf(normalized.data, convertOptions);
+      sourceFiles = [
+        {
+          name: `${basename(job.name, extname(job.name))}.glb`,
+          data: optimized.data,
+        },
+      ];
     }
 
-    const result = await convertGltfToFbx(convertBuf, convertOpts);
-    const outDir = dirname(job.outputPath);
-    await mkdir(outDir, { recursive: true });
-    await writeFile(job.outputPath, result.data);
+    const result = await convertAsset(sourceFiles, convertOptions);
+    await mkdir(job.outputDir, { recursive: true });
+    const outputs: Array<{ path: string; data: Uint8Array }> = [];
+    for (const file of result.files) {
+      const path = join(job.outputDir, file.name);
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, file.data);
+      outputs.push({ path, data: file.data });
+    }
     if (opts.json) {
-      const statsPath = job.outputPath.replace(/\.fbx$/, '.stats.json');
+      const statsPath = join(job.outputDir, `${basename(job.name, extname(job.name))}.stats.json`);
       await writeFile(
         statsPath,
         JSON.stringify(
@@ -247,30 +278,21 @@ async function runInline(job: FileJob, index: number, total: number): Promise<Jo
             ...result.stats,
             warnings: result.warnings,
             input: job.name,
-            output: basename(job.outputPath),
-            // CLI doesn't return optimize changes; the web UI does.
+            outputs: result.files.map((file) => file.name),
           },
           null,
           2,
         ),
       );
     }
-    if (opts.verbose)
-      console.error(`  [${index + 1}/${total}] ${job.name} → ${basename(job.outputPath)} ok`);
-    return {
-      job,
-      ok: true,
-      outputBytes: result.data.byteLength,
-      stats: result.stats as unknown as Record<string, unknown>,
-      durationMs: performance.now() - t0,
-    };
-  } catch (err) {
-    const e = err as { name?: string; message?: string };
+    return { job, ok: true, outputs, result, durationMs: performance.now() - started };
+  } catch (error) {
+    const detail = error as { name?: string; message?: string };
     return {
       job,
       ok: false,
-      error: { name: e.name ?? 'Error', message: e.message ?? String(err) },
-      durationMs: performance.now() - t0,
+      error: { name: detail.name ?? 'Error', message: detail.message ?? String(error) },
+      durationMs: performance.now() - started,
     };
   }
 }
@@ -278,63 +300,58 @@ async function runInline(job: FileJob, index: number, total: number): Promise<Jo
 async function main() {
   const jobs = await collectJobs(inputs, opts.recursive);
   if (jobs.length === 0) {
-    console.error('No .glb/.gltf files found.');
+    console.error('No supported 3D files found.');
     process.exit(1);
   }
-  assertUniqueOutputs(jobs);
-
+  const outputFormat = opts.format as OutputFormat;
+  assertUniqueOutputs(jobs, outputFormat);
   if (opts.output) await mkdir(resolve(opts.output), { recursive: true });
 
   const parallel = opts.parallel ?? Math.max(1, Math.min(8, cpus().length - 1));
-
-  console.error(`Converting ${jobs.length} file(s) with parallelism ${parallel}…`);
-
+  console.error(
+    `Converting ${jobs.length} asset(s) to ${outputFormat.toUpperCase()} with parallelism ${parallel}…`,
+  );
   const results: JobResult[] = new Array(jobs.length);
   let cursor = 0;
   async function worker() {
     while (cursor < jobs.length) {
-      const i = cursor++;
-      results[i] = await runInline(jobs[i], i, jobs.length);
+      const index = cursor++;
+      results[index] = await runJob(jobs[index], index, jobs.length);
     }
   }
-  await Promise.all(Array.from({ length: Math.min(parallel, jobs.length) }, worker));
+  await Promise.all(Array.from({ length: Math.min(parallel, jobs.length) }, () => worker()));
 
   if (opts.zip) {
-    console.error('Packing into zip…');
     const zip = new JSZip();
-    for (const r of results) {
-      if (r.ok) {
-        const data = await readFile(r.job.outputPath);
-        zip.file(basename(r.job.outputPath), data);
-      }
+    for (const result of results) {
+      for (const output of result.outputs ?? []) zip.file(basename(output.path), output.data);
     }
-    const buf = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
-    const zipPath = join(resolve(opts.output ?? process.cwd()), 'gltf-to-fbx.zip');
-    await writeFile(zipPath, buf);
+    const buffer = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+    const zipPath = join(resolve(opts.output ?? process.cwd()), 'modelshift.zip');
+    await writeFile(zipPath, buffer);
     console.error(`  → ${zipPath}`);
   }
 
-  const okCount = results.filter((r) => r.ok).length;
-  const failCount = results.length - okCount;
-  console.error('');
-  console.error('Summary:');
-  for (const r of results) {
-    if (r.ok) {
+  const succeeded = results.filter((result) => result.ok).length;
+  console.error('\nSummary:');
+  for (const result of results) {
+    if (result.ok) {
       console.error(
-        `  ✓ ${r.job.name}  →  ${basename(r.job.outputPath)}  (${r.durationMs.toFixed(0)} ms)`,
+        `  ✓ ${result.job.name} → ${(result.result?.files ?? []).map((file) => file.name).join(', ')} (${result.durationMs.toFixed(0)} ms)`,
       );
     } else {
-      console.error(`  ✗ ${r.job.name}  ${r.error?.name ?? ''}: ${r.error?.message ?? ''}`);
+      console.error(
+        `  ✗ ${result.job.name} ${result.error?.name ?? ''}: ${result.error?.message ?? ''}`,
+      );
     }
   }
-  console.error(`\n${okCount} ok, ${failCount} failed.`);
-
-  if (failCount > 0 && okCount === 0) process.exit(2);
-  if (failCount > 0) process.exit(4);
-  process.exit(0);
+  const failed = results.length - succeeded;
+  console.error(`\n${succeeded} ok, ${failed} failed.`);
+  if (failed > 0 && succeeded === 0) process.exit(2);
+  if (failed > 0) process.exit(4);
 }
 
-main().catch((err) => {
-  console.error('Fatal:', err);
+main().catch((error) => {
+  console.error('Fatal:', error);
   process.exit(1);
 });

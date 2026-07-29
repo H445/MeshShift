@@ -8,8 +8,10 @@ import {
   type TargetEngine,
 } from '../../shared/options.js';
 
-const PROFILE_STORAGE_KEY = 'gltf-to-fbx.profile.v1';
-const LEGACY_STORAGE_KEY = 'gltf-to-fbx.settings.v1';
+const PROFILE_STORAGE_KEY = 'modelshift.profile.v1';
+const PREVIOUS_PROFILE_STORAGE_KEY = 'modelshift-3d.profile.v1';
+const LEGACY_PROFILE_STORAGE_KEY = 'gltf-to-fbx.profile.v1';
+const LEGACY_SETTINGS_STORAGE_KEY = 'gltf-to-fbx.settings.v1';
 const TARGET_ENGINES: TargetEngine[] = ['auto', 'unity', 'unreal', 'godot'];
 
 export interface ProfilesHandle {
@@ -50,7 +52,10 @@ export function createProfiles(): ProfilesHandle {
       // Read the new profile key first, then migrate the optimization fields
       // from the previous Settings storage used by older builds.
       const raw =
-        localStorage.getItem(PROFILE_STORAGE_KEY) ?? localStorage.getItem(LEGACY_STORAGE_KEY);
+        localStorage.getItem(PROFILE_STORAGE_KEY) ??
+        localStorage.getItem(PREVIOUS_PROFILE_STORAGE_KEY) ??
+        localStorage.getItem(LEGACY_PROFILE_STORAGE_KEY) ??
+        localStorage.getItem(LEGACY_SETTINGS_STORAGE_KEY);
       if (!raw) return;
       const saved = JSON.parse(raw) as Partial<ConvertOptions> | null;
       if (!saved || typeof saved !== 'object') return;

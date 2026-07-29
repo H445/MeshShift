@@ -10,8 +10,12 @@ export type AnimationFilter = 'all' | 'skeletal' | 'none';
 /** Target game engine preset. Drives defaults for axis, texture size, etc. */
 export type TargetEngine = 'auto' | 'unity' | 'unreal' | 'godot';
 
+export type OutputFormat = 'fbx' | 'glb' | 'gltf' | 'obj' | 'stl' | 'ply' | 'dae';
+
 export interface ConvertOptions {
-  /** Embed textures inside the FBX (FBX embedded texture). Default true. */
+  /** Output container/format. Default 'fbx' for backwards compatibility. */
+  outputFormat?: OutputFormat;
+  /** Embed textures where the selected output supports it. Default true. */
   embedTextures?: boolean;
   /** Uniform scale applied to the root. Default 1. */
   scale?: number;
@@ -52,6 +56,7 @@ export const DEFAULT_OPTIONS: Required<Omit<ConvertOptions, 'onProgress' | 'targ
   onProgress?: ConvertOptions['onProgress'];
   targetEngine?: ConvertOptions['targetEngine'];
 } = {
+  outputFormat: 'fbx',
   embedTextures: true,
   scale: 1,
   axis: 'y-up',
@@ -145,16 +150,37 @@ export interface ConvertWarning {
   message: string;
 }
 
-export interface FbxResult {
+export interface AssetFile {
+  /** Relative path presented to the importer. Extensions select the importer. */
+  name: string;
+  data: ArrayBuffer | Uint8Array;
+}
+
+export interface ConvertedFile {
+  name: string;
   data: Uint8Array;
+  mimeType: string;
+}
+
+export interface ConvertResult {
+  /** Primary output file. Retained as a convenience for single-file formats. */
+  data: Uint8Array;
+  /** Every generated file, including glTF/OBJ companion resources. */
+  files: ConvertedFile[];
+  format: OutputFormat;
   stats: ConvertStats;
   warnings: ConvertWarning[];
-  filename: string; // suggested filename (e.g. "model.fbx")
+  filename: string;
 }
+
+/** @deprecated Use ConvertResult. */
+export type FbxResult = ConvertResult;
 
 export interface BatchItem {
   name: string; // original filename, used to derive output name
   data: ArrayBuffer | Uint8Array;
+  /** Optional sidecars (for example .bin, .mtl, and texture files). */
+  files?: AssetFile[];
 }
 
 export interface BatchFailure {
@@ -163,7 +189,7 @@ export interface BatchFailure {
 }
 
 export interface BatchResult {
-  succeeded: FbxResult[];
+  succeeded: ConvertResult[];
   failed: BatchFailure[];
 }
 

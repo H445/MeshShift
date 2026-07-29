@@ -18,7 +18,7 @@ const copyVendorFiles = () => {
 };
 
 export default defineConfig({
-  entry: { 'gltf-to-fbx': 'src/cli/index.ts' },
+  entry: { modelshift: 'src/cli/index.ts' },
   format: ['esm'],
   target: 'node20',
   splitting: false,

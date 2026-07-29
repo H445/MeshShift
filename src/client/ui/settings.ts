@@ -2,11 +2,14 @@
  * Settings panel — reads/writes ConvertOptions to/from the side panel.
  * Applies engine presets and persists the user's choices across reloads.
  */
-import { type ConvertOptions } from '../../shared/options.js';
+import { type ConvertOptions, type OutputFormat } from '../../shared/options.js';
 
-const SETTINGS_STORAGE_KEY = 'gltf-to-fbx.settings.v1';
+const SETTINGS_STORAGE_KEY = 'modelshift.settings.v1';
+const PREVIOUS_STORAGE_KEY = 'modelshift-3d.settings.v1';
+const LEGACY_STORAGE_KEY = 'gltf-to-fbx.settings.v1';
 const AXES = ['y-up', 'z-up'] as const;
 const ANIMATION_FILTERS = ['all', 'skeletal', 'none'] as const;
+const OUTPUT_FORMATS = ['fbx', 'glb', 'gltf', 'obj', 'stl', 'ply', 'dae'] as const;
 
 export interface SettingsHandle {
   read(): ConvertOptions;
@@ -17,6 +20,7 @@ export function createSettings(): SettingsHandle {
   const panel = document.getElementById('settings-panel') as HTMLElement;
   const openBtn = document.getElementById('settings-btn') as HTMLButtonElement;
   const closeBtn = document.getElementById('settings-close-btn') as HTMLButtonElement;
+  const formatEl = document.getElementById('opt-format') as HTMLSelectElement;
   const embedEl = document.getElementById('opt-embed') as HTMLInputElement;
   const maxTexEl = document.getElementById('opt-max-tex') as HTMLSelectElement;
   const scaleEl = document.getElementById('opt-scale') as HTMLInputElement;
@@ -26,6 +30,7 @@ export function createSettings(): SettingsHandle {
 
   function readControls(): ConvertOptions {
     return {
+      outputFormat: (formatEl.value as OutputFormat) || 'fbx',
       embedTextures: embedEl.checked,
       maxTextureSize: Number(maxTexEl.value) || 2048,
       scale: Number(scaleEl.value) || 1,
@@ -41,11 +46,20 @@ export function createSettings(): SettingsHandle {
 
   function restorePersistedSettings(): void {
     try {
-      const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
+      const raw =
+        localStorage.getItem(SETTINGS_STORAGE_KEY) ??
+        localStorage.getItem(PREVIOUS_STORAGE_KEY) ??
+        localStorage.getItem(LEGACY_STORAGE_KEY);
       if (!raw) return;
       const saved = JSON.parse(raw) as Partial<ConvertOptions> | null;
       if (!saved || typeof saved !== 'object') return;
 
+      if (
+        typeof saved.outputFormat === 'string' &&
+        OUTPUT_FORMATS.includes(saved.outputFormat as (typeof OUTPUT_FORMATS)[number])
+      ) {
+        formatEl.value = saved.outputFormat;
+      }
       if (typeof saved.embedTextures === 'boolean') embedEl.checked = saved.embedTextures;
       if (
         typeof saved.maxTextureSize === 'number' &&
@@ -82,6 +96,7 @@ export function createSettings(): SettingsHandle {
   restorePersistedSettings();
 
   const controls: Array<HTMLInputElement | HTMLSelectElement> = [
+    formatEl,
     embedEl,
     maxTexEl,
     scaleEl,

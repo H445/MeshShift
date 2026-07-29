@@ -21,18 +21,22 @@ export function createDropzone(_host: HTMLElement): DropzoneHandle {
   const onDrop = (e: DragEvent) => {
     e.preventDefault();
     document.body.classList.remove('drag-active');
-    const files = Array.from(e.dataTransfer?.files ?? []).filter(isGltf);
-    if (files.length) cb?.(files);
+    const files = Array.from(e.dataTransfer?.files ?? []);
+    if (files.some(isPrimaryAsset)) cb?.(files);
   };
-  function isGltf(f: File): boolean {
+  function isPrimaryAsset(f: File): boolean {
     const n = f.name.toLowerCase();
-    return n.endsWith('.glb') || n.endsWith('.gltf');
+    return ['.glb', '.gltf', '.fbx', '.obj', '.stl', '.ply', '.dae', '.3ds'].some((extension) =>
+      n.endsWith(extension),
+    );
   }
   window.addEventListener('dragover', onDragOver);
   window.addEventListener('dragleave', onDragLeave);
   window.addEventListener('drop', onDrop);
   return {
-    onFiles(handler) { cb = handler; },
+    onFiles(handler) {
+      cb = handler;
+    },
     destroy() {
       window.removeEventListener('dragover', onDragOver);
       window.removeEventListener('dragleave', onDragLeave);

@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="dark" />
-    <title>GLB → FBX</title>
+    <title>ModelShift</title>
     <link
       rel="icon"
       type="image/svg+xml"
@@ -24,7 +24,7 @@
               stroke-width="0.5"
             />
           </svg>
-          <span>GLB → FBX</span>
+          <span>ModelShift</span>
         </div>
         <div class="topbar-actions">
           <button
@@ -57,7 +57,7 @@
         <section class="pane" id="pane-input">
           <header class="pane-header">
             <h2>Input</h2>
-            <span class="pane-sub">GLB / GLTF preview</span>
+            <span class="pane-sub">3D asset preview</span>
           </header>
           <div class="viewer-host" id="viewer-input">
             <div
@@ -155,12 +155,18 @@
                   <path d="M2 12l10 5 10-5" />
                 </svg>
               </div>
-              <p><strong>Drop one or more .glb / .gltf files here</strong></p>
+              <p><strong>Drop 3D assets here</strong></p>
               <p class="empty-sub">
-                Bulk conversion supported - drop a whole folder of assets at once
+                GLB, glTF, FBX, OBJ, STL, PLY, DAE, and 3DS · include companion files
               </p>
               <button class="btn btn-secondary" id="pick-file-btn">Choose files</button>
-              <input type="file" id="file-input" accept=".glb,.gltf" multiple hidden />
+              <input
+                type="file"
+                id="file-input"
+                accept=".glb,.gltf,.fbx,.obj,.stl,.ply,.dae,.3ds,.mtl,.bin,.png,.jpg,.jpeg,.webp,.bmp,.tga,.dds"
+                multiple
+                hidden
+              />
             </div>
             <canvas id="canvas-input" hidden></canvas>
           </div>
@@ -169,7 +175,7 @@
         <section class="pane" id="pane-output">
           <header class="pane-header">
             <h2>Output</h2>
-            <span class="pane-sub" id="output-label">FBX preview</span>
+            <span class="pane-sub" id="output-label">Converted preview</span>
             <div class="lod-selector" id="lod-selector" hidden>
               <span class="lod-selector-label">LOD</span>
               <div class="lod-slider-host" id="lod-slider-host"></div>
@@ -257,7 +263,7 @@
               </button>
             </div>
             <div class="viewer-empty">
-              <p>Converted FBX will appear here</p>
+              <p>Your converted asset will appear here</p>
               <p class="empty-sub">
                 Drop files, set options, and click <strong>Preview optimization</strong> to see the
                 result without exporting.
@@ -320,6 +326,18 @@
           <div class="settings-section">
             <div class="settings-section-title">Output</div>
             <label class="setting">
+              <span>Format</span>
+              <select id="opt-format">
+                <option value="fbx" selected>FBX</option>
+                <option value="glb">Binary glTF (.glb)</option>
+                <option value="gltf">glTF + resources</option>
+                <option value="obj">Wavefront OBJ</option>
+                <option value="stl">STL (binary)</option>
+                <option value="ply">PLY</option>
+                <option value="dae">Collada (.dae)</option>
+              </select>
+            </label>
+            <label class="setting">
               <span>Embed textures</span>
               <input type="checkbox" id="opt-embed" checked />
             </label>
@@ -361,8 +379,8 @@
         </div>
         <footer class="settings-footer">
           <small
-            >FBX 7.4 binary. PBR materials, textures, skeletal animation, and morph targets are
-            preserved.</small
+            >Animated formats preserve scene data where supported. OBJ, STL, PLY, and DAE export
+            static geometry; multi-file outputs download as ZIP.</small
           >
         </footer>
       </aside>

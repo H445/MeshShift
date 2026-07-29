@@ -21,6 +21,7 @@ export interface AssimpResult {
 }
 
 export interface AssimpOutputFile {
+  GetPath(): string;
   GetContent(): Uint8Array;
 }
 

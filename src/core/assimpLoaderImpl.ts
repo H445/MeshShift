@@ -75,6 +75,7 @@ async function loadInNode(): Promise<AssimpInstance> {
     const thisDir = dirname(fileURLToPath(import.meta.url));
     const cwd = process.cwd();
     const candidates = [
+      process.env.MODELSHIFT_ASSIMP_DIR,
       process.env.G2F_ASSIMP_DIR,
       thisDir,
       join(cwd, 'src', 'client', 'public'),
@@ -109,7 +110,7 @@ async function loadInNode(): Promise<AssimpInstance> {
     }
     throw new Error(
       `assimpjs vendor files not found. Looked in:\n  ${candidates.join('\n  ')}\n` +
-        'Set G2F_ASSIMP_DIR to the directory containing assimpjs.js and assimpjs.wasm.',
+        'Set MODELSHIFT_ASSIMP_DIR to the directory containing assimpjs.js and assimpjs.wasm.',
     );
   }
 

@@ -3,7 +3,7 @@
  * Renders rows with per-file status, progress, checkbox (for batch opt-in),
  * click-to-preview, and download button.
  */
-import type { FbxResult, InspectResult } from '../../shared/options.js';
+import type { ConvertResult, InspectResult } from '../../shared/options.js';
 
 export type QueueStatus = 'queued' | 'converting' | 'done' | 'error';
 
@@ -14,7 +14,7 @@ export interface QueueRow {
   status: QueueStatus;
   progress: number; // 0..1
   phase?: string;
-  result?: FbxResult;
+  result?: ConvertResult;
   errorMessage?: string;
   /** Pre-conversion metadata, shown in the row. */
   inspect?: InspectResult;
@@ -176,7 +176,7 @@ export function createQueue(_host: HTMLElement, listEl: HTMLElement): QueueHandl
         const preview = document.createElement('button');
         preview.className = 'btn btn-secondary';
         preview.textContent = 'Preview';
-        preview.title = 'Show this FBX in the right-side viewer';
+        preview.title = 'Show this converted asset in the right-side viewer';
         preview.addEventListener('click', (e) => {
           e.stopPropagation();
           handlers.previewOne(r.id);
