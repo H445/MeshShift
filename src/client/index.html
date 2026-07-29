@@ -1,0 +1,438 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <title>GLB → FBX</title>
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%233DA9FC' d='M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5'/%3E%3C/svg%3E"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar">
+        <div class="brand">
+          <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              fill="currentColor"
+              d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"
+              stroke="currentColor"
+              stroke-width="0.5"
+            />
+          </svg>
+          <span>GLB → FBX</span>
+        </div>
+        <div class="topbar-actions">
+          <button
+            id="profiles-btn"
+            class="menu-btn"
+            title="Optimization profiles"
+            aria-label="Profiles"
+          >
+            Profiles
+          </button>
+          <button id="settings-btn" class="icon-btn" title="Settings" aria-label="Settings">
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <circle cx="12" cy="12" r="3" />
+              <path
+                d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"
+              />
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <main class="layout">
+        <section class="pane" id="pane-input">
+          <header class="pane-header">
+            <h2>Input</h2>
+            <span class="pane-sub">GLB / GLTF preview</span>
+            <button
+              class="icon-btn wireframe-btn"
+              id="wireframe-input-btn"
+              title="Toggle wireframe"
+              aria-label="Toggle wireframe"
+              aria-pressed="false"
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linejoin="round"
+                stroke-linecap="round"
+              >
+                <path d="M3 5l9 -3l9 3l0 14l-9 3l-9 -3z" />
+                <path d="M3 5l9 3l9 -3" />
+                <path d="M3 12l9 3l9 -3" />
+                <path d="M3 19l9 -3l9 3" />
+                <path d="M12 8l0 13" />
+                <path d="M3 5l0 14" />
+                <path d="M21 5l0 14" />
+              </svg>
+            </button>
+          </header>
+          <div class="viewer-host" id="viewer-input">
+            <div class="axis-lock" id="axis-lock-input" role="group" aria-label="Input axis view">
+              <span class="axis-lock-label">View</span>
+              <button
+                type="button"
+                class="axis-btn auto-rotate-btn"
+                data-auto-rotate
+                aria-pressed="true"
+                title="Toggle idle auto-rotation"
+              >
+                Auto
+              </button>
+              <button
+                type="button"
+                class="axis-btn"
+                data-view-axis="free"
+                aria-pressed="true"
+                title="Free orbit"
+              >
+                Free
+              </button>
+              <button
+                type="button"
+                class="axis-btn axis-x"
+                data-view-axis="x"
+                aria-pressed="false"
+                title="Lock to X axis (right view)"
+              >
+                X
+              </button>
+              <button
+                type="button"
+                class="axis-btn axis-y"
+                data-view-axis="y"
+                aria-pressed="false"
+                title="Lock to Y axis (top view)"
+              >
+                Y
+              </button>
+              <button
+                type="button"
+                class="axis-btn axis-z"
+                data-view-axis="z"
+                aria-pressed="false"
+                title="Lock to Z axis (front view)"
+              >
+                Z
+              </button>
+            </div>
+            <div class="viewer-empty">
+              <div class="empty-art" aria-hidden="true">
+                <svg
+                  width="64"
+                  height="64"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1"
+                >
+                  <path d="M12 2L2 7l10 5 10-5-10-5z" />
+                  <path d="M2 17l10 5 10-5" />
+                  <path d="M2 12l10 5 10-5" />
+                </svg>
+              </div>
+              <p><strong>Drop one or more .glb / .gltf files here</strong></p>
+              <p class="empty-sub">
+                Bulk conversion supported - drop a whole folder of assets at once
+              </p>
+              <button class="btn btn-secondary" id="pick-file-btn">Choose files</button>
+              <input type="file" id="file-input" accept=".glb,.gltf" multiple hidden />
+            </div>
+            <canvas id="canvas-input" hidden></canvas>
+          </div>
+        </section>
+
+        <section class="pane" id="pane-output">
+          <header class="pane-header">
+            <h2>Output</h2>
+            <span class="pane-sub" id="output-label">FBX preview</span>
+            <div class="lod-selector" id="lod-selector" hidden>
+              <span class="lod-selector-label">LOD</span>
+              <div class="lod-slider-host" id="lod-slider-host"></div>
+            </div>
+            <button
+              class="icon-btn wireframe-btn"
+              id="wireframe-output-btn"
+              title="Toggle wireframe"
+              aria-label="Toggle wireframe"
+              aria-pressed="false"
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linejoin="round"
+                stroke-linecap="round"
+              >
+                <path d="M3 5l9 -3l9 3l0 14l-9 3l-9 -3z" />
+                <path d="M3 5l9 3l9 -3" />
+                <path d="M3 12l9 3l9 -3" />
+                <path d="M3 19l9 -3l9 3" />
+                <path d="M12 8l0 13" />
+                <path d="M3 5l0 14" />
+                <path d="M21 5l0 14" />
+              </svg>
+            </button>
+          </header>
+          <div class="viewer-host" id="viewer-output">
+            <div class="axis-lock" id="axis-lock-output" role="group" aria-label="Output axis view">
+              <span class="axis-lock-label">View</span>
+              <button
+                type="button"
+                class="axis-btn auto-rotate-btn"
+                data-auto-rotate
+                aria-pressed="true"
+                title="Toggle idle auto-rotation"
+              >
+                Auto
+              </button>
+              <button
+                type="button"
+                class="axis-btn"
+                data-view-axis="free"
+                aria-pressed="true"
+                title="Free orbit"
+              >
+                Free
+              </button>
+              <button
+                type="button"
+                class="axis-btn axis-x"
+                data-view-axis="x"
+                aria-pressed="false"
+                title="Lock to X axis (right view)"
+              >
+                X
+              </button>
+              <button
+                type="button"
+                class="axis-btn axis-y"
+                data-view-axis="y"
+                aria-pressed="false"
+                title="Lock to Y axis (top view)"
+              >
+                Y
+              </button>
+              <button
+                type="button"
+                class="axis-btn axis-z"
+                data-view-axis="z"
+                aria-pressed="false"
+                title="Lock to Z axis (front view)"
+              >
+                Z
+              </button>
+            </div>
+            <div class="viewer-empty">
+              <p>Converted FBX will appear here</p>
+              <p class="empty-sub">
+                Drop files, set options, and click <strong>Preview optimization</strong> to see the
+                result without exporting.
+              </p>
+            </div>
+            <canvas id="canvas-output" hidden></canvas>
+          </div>
+          <div class="stats-panel" id="stats-panel" hidden>
+            <div class="stats-title">Optimization</div>
+            <div class="stats-grid" id="stats-grid"></div>
+            <details class="stats-changes" id="stats-changes-wrap" hidden>
+              <summary>Changes</summary>
+              <ul id="stats-changes"></ul>
+            </details>
+          </div>
+        </section>
+      </main>
+
+      <section class="queue-host" id="queue-host" hidden>
+        <header class="queue-header">
+          <div class="queue-header-left">
+            <label
+              class="queue-master-check"
+              title="Toggle all files in/out of the conversion batch"
+            >
+              <input type="checkbox" id="master-check" />
+            </label>
+            <h2>Files <span class="queue-count" id="queue-count">0</span></h2>
+          </div>
+          <div class="queue-actions">
+            <button class="btn btn-secondary" id="load-btn" title="Replace the active model">
+              Load
+            </button>
+            <button class="btn btn-secondary" id="add-more-btn" title="Add more files">
+              + Add files
+            </button>
+            <button
+              class="btn btn-secondary"
+              id="preview-opt-btn"
+              title="Preview the optimized result in the OUTPUT viewer (without exporting)"
+            >
+              Preview optimization
+            </button>
+            <button class="btn btn-primary" id="convert-all-btn">Convert all</button>
+            <button class="btn btn-secondary" id="clear-btn">Clear</button>
+            <button class="btn btn-primary" id="download-all-btn" hidden>
+              Download all (.zip)
+            </button>
+          </div>
+        </header>
+        <ul class="queue-list" id="queue-list"></ul>
+      </section>
+
+      <aside class="settings-panel" id="settings-panel" hidden>
+        <header class="settings-header">
+          <h3>Settings</h3>
+          <button class="icon-btn" id="settings-close-btn" aria-label="Close">×</button>
+        </header>
+        <div class="settings-body">
+          <div class="settings-section">
+            <div class="settings-section-title">Output</div>
+            <label class="setting">
+              <span>Embed textures</span>
+              <input type="checkbox" id="opt-embed" checked />
+            </label>
+            <label class="setting">
+              <span>Max texture size</span>
+              <select id="opt-max-tex">
+                <option value="256">256 px</option>
+                <option value="512">512 px</option>
+                <option value="1024">1024 px</option>
+                <option value="2048" selected>2048 px</option>
+                <option value="4096">4096 px</option>
+                <option value="8192">8192 px (no resize)</option>
+              </select>
+            </label>
+            <label class="setting">
+              <span>Scale</span>
+              <input type="number" id="opt-scale" min="0.01" step="0.01" value="1" />
+            </label>
+            <label class="setting">
+              <span>Axis</span>
+              <select id="opt-axis">
+                <option value="y-up" selected>Y-up</option>
+                <option value="z-up">Z-up</option>
+              </select>
+            </label>
+            <label class="setting">
+              <span>Animations</span>
+              <select id="opt-anim">
+                <option value="all" selected>All</option>
+                <option value="skeletal">Skeletal only</option>
+                <option value="none">None</option>
+              </select>
+            </label>
+            <label class="setting">
+              <span>Morph targets</span>
+              <input type="checkbox" id="opt-morph" checked />
+            </label>
+          </div>
+        </div>
+        <footer class="settings-footer">
+          <small
+            >FBX 7.4 binary. PBR materials, textures, skeletal animation, and morph targets are
+            preserved.</small
+          >
+        </footer>
+      </aside>
+
+      <aside class="settings-panel profiles-panel" id="profiles-panel" hidden>
+        <header class="settings-header">
+          <h3>Profiles</h3>
+          <button class="icon-btn" id="profiles-close-btn" aria-label="Close">×</button>
+        </header>
+        <div class="settings-body">
+          <div class="settings-section">
+            <div class="settings-section-title">Target engine</div>
+            <label class="setting">
+              <span>Engine preset</span>
+              <select id="profile-engine">
+                <option value="auto" selected>Auto</option>
+                <option value="unity">Unity</option>
+                <option value="unreal">Unreal Engine</option>
+                <option value="godot">Godot</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="settings-section">
+            <div class="settings-section-title">Mesh optimization</div>
+            <label class="setting">
+              <span>Triangle budget per mesh</span>
+              <input
+                type="number"
+                id="profile-max-tris"
+                min="0"
+                step="100"
+                value="0"
+                placeholder="0 = no limit"
+              />
+            </label>
+            <label class="setting">
+              <span>Merge by material</span>
+              <input type="checkbox" id="profile-merge" />
+            </label>
+            <label class="setting">
+              <span>Generate LODs</span>
+              <select id="profile-lods">
+                <option value="0" selected>None</option>
+                <option value="1">1 level (LOD1)</option>
+                <option value="2">2 levels (LOD1, LOD2)</option>
+                <option value="3">3 levels (LOD1..LOD3)</option>
+                <option value="4">4 levels (LOD1..LOD4)</option>
+              </select>
+            </label>
+            <div class="settings-section-title profiles-subtitle">LOD triangle targets</div>
+            <small class="setting-help"
+              >Absolute triangles per mesh. Leave 0 for quality-focused automatic targets.</small
+            >
+            <label class="setting"
+              ><span>LOD1 target</span
+              ><input type="number" id="profile-lod-target-1" min="0" step="10" value="0"
+            /></label>
+            <label class="setting"
+              ><span>LOD2 target</span
+              ><input type="number" id="profile-lod-target-2" min="0" step="10" value="0"
+            /></label>
+            <label class="setting"
+              ><span>LOD3 target</span
+              ><input type="number" id="profile-lod-target-3" min="0" step="10" value="0"
+            /></label>
+            <label class="setting"
+              ><span>LOD4 target</span
+              ><input type="number" id="profile-lod-target-4" min="0" step="10" value="0"
+            /></label>
+          </div>
+        </div>
+        <footer class="settings-footer">
+          <small
+            >Profile choices are saved automatically and apply to Preview optimization and
+            export.</small
+          >
+        </footer>
+      </aside>
+
+      <div class="toast-host" id="toast-host" aria-live="polite"></div>
+    </div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

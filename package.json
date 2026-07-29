@@ -1,0 +1,57 @@
+{
+  "name": "gltf-to-fbx",
+  "version": "0.1.0",
+  "description": "Convert GLB/GLTF (with PBR materials, textures, skeletal animation, blend shapes) to FBX 7.4. CLI + static web UI, no server.",
+  "type": "module",
+  "bin": {
+    "gltf-to-fbx": "./dist/cli/gltf-to-fbx.mjs"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build:cli": "tsup --config tsup.cli.config.ts",
+    "build:client": "vite build",
+    "build": "node scripts/build.mjs",
+    "preview": "vite preview --port 5173 --strictPort",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json --noEmit",
+    "lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\"",
+    "format": "prettier --write \"src/**/*.{ts,css,html}\" \"test/**/*.ts\"",
+    "make-fixtures": "node scripts/make-fixtures.mjs"
+  },
+  "dependencies": {
+    "commander": "^12.1.0",
+    "jszip": "^3.10.1",
+    "meshoptimizer": "^1.2.0",
+    "three": "^0.169.0",
+    "three-mesh-bvh": "^0.9.13",
+    "watlas": "^1.0.1"
+  },
+  "devDependencies": {
+    "@gltf-transform/core": "^4.1.1",
+    "@types/node": "^22.10.0",
+    "@types/three": "^0.169.0",
+    "@typescript-eslint/eslint-plugin": "^8.16.0",
+    "@typescript-eslint/parser": "^8.16.0",
+    "eslint": "^9.16.0",
+    "prettier": "^3.4.1",
+    "tsup": "^8.3.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vite": "^5.4.11",
+    "vitest": "^2.1.6"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}
