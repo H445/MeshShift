@@ -25,18 +25,45 @@
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { BufferAttribute, BufferGeometry } from 'three';
+import {
+  BufferAttribute,
+  BufferGeometry,
+  type InterleavedBufferAttribute,
+  type TypedArray,
+  Vector3,
+} from 'three';
 import { MeshoptSimplifier, type SimplifierFlags } from 'meshoptimizer';
+import { MeshBVH, type HitPointInfo } from 'three-mesh-bvh';
 import {
   applyEnginePreset,
+  DEFAULT_DEEPEST_LOD_TRIANGLE_CAP,
   DEFAULT_LOD_TRIANGLE_RATIOS,
   type ConvertOptions,
   type InspectResult,
 } from '../shared/options.js';
-import { inspectGltf } from './inspect.js';
+import { inspectGltf, inspectScene } from './inspect.js';
 import { makeProgress } from './progress.js';
 
 declare const __IS_BROWSER__: boolean;
+
+type VertexAttribute = BufferAttribute | InterleavedBufferAttribute;
+type TypedArrayConstructor = new (length: number) => TypedArray;
+
+/**
+ * Allocate a tightly packed array with the same scalar type as a regular or
+ * interleaved source attribute. GLTFLoader commonly interleaves large meshes,
+ * so compaction must read through the attribute API instead of assuming the
+ * values are contiguous in `attribute.array`.
+ */
+function createAttributeArray(attribute: VertexAttribute, length: number): TypedArray {
+  const sourceArray = 'data' in attribute ? attribute.data.array : attribute.array;
+  const ArrayConstructor = sourceArray.constructor as TypedArrayConstructor;
+  return new ArrayConstructor(length);
+}
+
+function yieldToMainThread(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
 
 export interface OptimizeResult {
   /** The optimized GLB (binary glTF). Pass to convertGltfToFbx next. */
@@ -99,55 +126,80 @@ export async function generateLodGeometries(
     ? source.index.count / 3
     : source.attributes.position.count / 3;
   const levels: GeneratedLodGeometry[] = [];
+  let largeRepairProxy: import('three').BufferGeometry | null = null;
   let previousTriangles = Math.round(sourceTriangles);
   onProgress?.(0);
 
-  for (let level = 1; level <= levelCount; level++) {
-    // Generate every level directly from LOD0. Repeatedly simplifying the
-    // previous LOD compounds geometric and UV error, so the deepest levels
-    // can be much worse than a single reduction to the same triangle count.
-    // Independent levels cost more CPU time but maximize visual quality.
-    const configuredTarget = lodTriangleTargets?.[level - 1];
-    const automaticRatio = DEFAULT_LOD_TRIANGLE_RATIOS[level - 1] ?? Math.max(0.025, 0.5 ** level);
-    const target = Math.max(
-      4,
-      Math.floor(
-        typeof configuredTarget === 'number' &&
-          Number.isFinite(configuredTarget) &&
-          configuredTarget > 0
-          ? configuredTarget
-          : sourceTriangles * automaticRatio,
-      ),
-    );
-    let geometry: import('three').BufferGeometry;
-    let triangleCount = previousTriangles;
-    let restoredVertices = 0;
-    let safePlateau = false;
+  try {
+    for (let level = 1; level <= levelCount; level++) {
+      // Generate every level directly from LOD0. Repeatedly simplifying the
+      // previous LOD compounds geometric and UV error, so the deepest levels
+      // can be much worse than a single reduction to the same triangle count.
+      // Independent levels cost more CPU time but maximize visual quality.
+      const configuredTarget = lodTriangleTargets?.[level - 1];
+      const automaticRatio =
+        DEFAULT_LOD_TRIANGLE_RATIOS[level - 1] ?? Math.max(0.025, 0.5 ** level);
+      const ratioTarget = sourceTriangles * automaticRatio;
+      // Keep the first three levels ratio-based, but ensure the deepest
+      // automatic level actually becomes a low-poly asset even when the source
+      // is a scan with millions of triangles.  Explicit targets remain absolute
+      // and are never changed by this policy.
+      const automaticTarget =
+        level >= 4 ? Math.min(ratioTarget, DEFAULT_DEEPEST_LOD_TRIANGLE_CAP) : ratioTarget;
+      const target = Math.max(
+        4,
+        Math.floor(
+          typeof configuredTarget === 'number' &&
+            Number.isFinite(configuredTarget) &&
+            configuredTarget > 0
+            ? configuredTarget
+            : automaticTarget,
+        ),
+      );
+      let geometry: import('three').BufferGeometry;
+      let triangleCount = previousTriangles;
+      let restoredVertices = 0;
+      let safePlateau = false;
 
-    if (target < previousTriangles) {
-      let simplified: Awaited<ReturnType<typeof meshoptDecimate>> = null;
-      try {
-        simplified = await meshoptDecimate(source, target);
-      } catch {
-        // Treat unsupported/pathological geometry as a safe plateau.
-      }
-      if (simplified && simplified.triangleCount < previousTriangles) {
-        geometry = simplified.geometry;
-        triangleCount = simplified.triangleCount;
-        restoredVertices = simplified.restoredVertices;
+      if (target < previousTriangles) {
+        let simplified: Awaited<ReturnType<typeof meshoptDecimate>> = null;
+        try {
+          if (
+            sourceTriangles > MAX_EXHAUSTIVE_REPAIR_SOURCE_TRIANGLES &&
+            target <= MAX_LARGE_MESH_REPAIR_PROXY_TRIANGLES
+          ) {
+            largeRepairProxy ??= buildLargeMeshRepairProxy(
+              source,
+              MAX_LARGE_MESH_REPAIR_PROXY_TRIANGLES,
+            );
+          }
+          simplified = await meshoptDecimate(source, target, largeRepairProxy ?? undefined);
+        } catch {
+          // Treat unsupported/pathological geometry as a safe plateau.
+        }
+        if (simplified && simplified.triangleCount < previousTriangles) {
+          geometry = simplified.geometry;
+          triangleCount = simplified.triangleCount;
+          restoredVertices = simplified.restoredVertices;
+        } else {
+          simplified?.geometry.dispose();
+          safePlateau = true;
+          geometry = levels.at(-1)?.geometry.clone() ?? source.clone();
+        }
       } else {
-        simplified?.geometry.dispose();
         safePlateau = true;
         geometry = levels.at(-1)?.geometry.clone() ?? source.clone();
       }
-    } else {
-      safePlateau = true;
-      geometry = levels.at(-1)?.geometry.clone() ?? source.clone();
-    }
 
-    levels.push({ level, geometry, triangleCount, restoredVertices, safePlateau });
-    previousTriangles = triangleCount;
-    onProgress?.(levelCount > 0 ? level / levelCount : 1);
+      levels.push({ level, geometry, triangleCount, restoredVertices, safePlateau });
+      previousTriangles = triangleCount;
+      onProgress?.(levelCount > 0 ? level / levelCount : 1);
+      if (sourceTriangles > MAX_EXHAUSTIVE_REPAIR_SOURCE_TRIANGLES) {
+        await yieldToMainThread();
+      }
+    }
+  } finally {
+    largeRepairProxy?.dispose();
   }
 
   return levels;
@@ -351,6 +403,8 @@ export function restoreCriticalVertices(
   }
 
   const faces: RepairFace[] = [];
+  const repairFaceByTriangle = new Int32Array(Math.floor(simplifiedIndex.count / 3));
+  repairFaceByTriangle.fill(-1);
   for (let offset = 0; offset + 2 < simplifiedIndex.count; offset += 3) {
     const a = simplifiedIndex.getX(offset);
     const b = simplifiedIndex.getX(offset + 1);
@@ -372,6 +426,7 @@ export function restoreCriticalVertices(
     nx /= length;
     ny /= length;
     nz /= length;
+    repairFaceByTriangle[Math.floor(offset / 3)] = faces.length;
     faces.push({
       a,
       b,
@@ -419,20 +474,26 @@ export function restoreCriticalVertices(
   const simplifiedBounds = repairAxisBounds(simplifiedPosition);
   const freeProjectionBounds = repairProjectionBounds(simplifiedPosition, FREE_REPAIR_VIEWS);
   const candidates: RestorationCandidate[] = [];
+  // Query the reduced surface through a BVH instead of comparing every source
+  // point with every LOD face. The old O(sourcePoints × faces) loop could
+  // perform close to a billion triangle tests for a scan-sized proxy and was
+  // the immediate cause of scan previews becoming unresponsive or crashing.
+  const repairBvh = new MeshBVH(simplified, { indirect: true });
+  const repairQuery = new Vector3();
+  const repairHit: HitPointInfo = {
+    point: new Vector3(),
+    distance: 0,
+    faceIndex: 0,
+  };
 
   for (const [key, point] of sourcePoints) {
     if (existingPositions.has(key)) continue;
-    let closest: ClosestTrianglePoint | null = null;
-    let closestFace = -1;
-    for (let faceIndex = 0; faceIndex < faces.length; faceIndex++) {
-      const face = faces[faceIndex];
-      const candidate = closestPointOnRepairTriangle(point.x, point.y, point.z, face);
-      if (!closest || candidate.distanceSquared < closest.distanceSquared) {
-        closest = candidate;
-        closestFace = faceIndex;
-      }
-    }
-    if (!closest || closestFace < 0) continue;
+    repairQuery.set(point.x, point.y, point.z);
+    const hit = repairBvh.closestPointToPoint(repairQuery, repairHit);
+    if (!hit || hit.faceIndex < 0 || hit.faceIndex >= repairFaceByTriangle.length) continue;
+    const closestFace = repairFaceByTriangle[hit.faceIndex];
+    if (closestFace < 0) continue;
+    const closest = closestPointOnRepairTriangle(point.x, point.y, point.z, faces[closestFace]);
 
     const distance = Math.sqrt(closest.distanceSquared);
     if (distance <= deviationThreshold) continue;
@@ -724,11 +785,183 @@ function finishDecimation(
   source: import('three').BufferGeometry,
   simplified: { geometry: import('three').BufferGeometry; triangleCount: number },
   targetTriangles: number,
+  largeMeshRepairProxy?: import('three').BufferGeometry,
 ): CriticalVertexRepairResult {
-  const repaired = restoreCriticalVertices(source, simplified.geometry, targetTriangles);
+  let repaired = restoreCriticalVertices(source, simplified.geometry, targetTriangles);
+
+  // Keep the same silhouette reinjection policy for scan-sized assets without
+  // rebuilding a million-entry source-point map. A compact, spatially spread
+  // proxy gives the repair scorer enough high-curvature/extremal anchors while
+  // keeping the work bounded to a predictable triangle budget.
+  if (!repaired && targetTriangles <= MAX_LARGE_MESH_REPAIR_PROXY_TRIANGLES) {
+    const sourceIndex = source.index;
+    const sourceTriangles = sourceIndex ? Math.floor(sourceIndex.count / 3) : 0;
+    if (sourceTriangles > MAX_EXHAUSTIVE_REPAIR_SOURCE_TRIANGLES) {
+      const ownsProxy = !largeMeshRepairProxy;
+      const proxy =
+        largeMeshRepairProxy ??
+        buildLargeMeshRepairProxy(source, MAX_LARGE_MESH_REPAIR_PROXY_TRIANGLES);
+      if (proxy) {
+        try {
+          repaired = restoreCriticalVertices(proxy, simplified.geometry, targetTriangles);
+        } finally {
+          if (ownsProxy) proxy.dispose();
+        }
+      }
+    }
+  }
   if (!repaired) return { ...simplified, restoredVertices: 0 };
   simplified.geometry.dispose();
   return repaired;
+}
+
+/** Build a bounded source sample for critical-vertex repair on huge meshes. */
+function buildLargeMeshRepairProxy(
+  source: import('three').BufferGeometry,
+  maximumTriangles: number,
+  includeAttribute: (name: string) => boolean = () => true,
+): import('three').BufferGeometry | null {
+  const position = source.attributes.position;
+  const sourceIndex = source.index;
+  if (!position || !sourceIndex || maximumTriangles < 8) return null;
+  const sourceTriangles = Math.floor(sourceIndex.count / 3);
+  if (sourceTriangles <= maximumTriangles) return source.clone();
+
+  // Sample a regular stride so every region contributes, then add the faces
+  // containing the six axis extrema so silhouettes remain represented even
+  // when an extremal vertex happens to fall between stride samples.
+  const stride = Math.max(1, Math.ceil(sourceTriangles / maximumTriangles));
+  const selectedFaces = new Set<number>();
+  for (let triangle = 0; triangle < sourceTriangles; triangle += stride) {
+    selectedFaces.add(triangle);
+  }
+  const extrema = new Set<number>();
+  let minX = Infinity,
+    maxX = -Infinity,
+    minY = Infinity,
+    maxY = -Infinity,
+    minZ = Infinity,
+    maxZ = -Infinity;
+  let minXVertex = -1,
+    maxXVertex = -1,
+    minYVertex = -1,
+    maxYVertex = -1,
+    minZVertex = -1,
+    maxZVertex = -1;
+  for (let vertex = 0; vertex < position.count; vertex++) {
+    const x = position.getX(vertex);
+    const y = position.getY(vertex);
+    const z = position.getZ(vertex);
+    if (x < minX) {
+      minX = x;
+      minXVertex = vertex;
+    }
+    if (x > maxX) {
+      maxX = x;
+      maxXVertex = vertex;
+    }
+    if (y < minY) {
+      minY = y;
+      minYVertex = vertex;
+    }
+    if (y > maxY) {
+      maxY = y;
+      maxYVertex = vertex;
+    }
+    if (z < minZ) {
+      minZ = z;
+      minZVertex = vertex;
+    }
+    if (z > maxZ) {
+      maxZ = z;
+      maxZVertex = vertex;
+    }
+  }
+  const extremaVertices = new Set(
+    [minXVertex, maxXVertex, minYVertex, maxYVertex, minZVertex, maxZVertex].filter(
+      (vertex) => vertex >= 0,
+    ),
+  );
+  for (let triangle = 0; triangle < sourceTriangles; triangle++) {
+    const offset = triangle * 3;
+    if (
+      extremaVertices.has(sourceIndex.getX(offset)) ||
+      extremaVertices.has(sourceIndex.getX(offset + 1)) ||
+      extremaVertices.has(sourceIndex.getX(offset + 2))
+    ) {
+      extrema.add(triangle);
+    }
+  }
+  for (const triangle of extrema) selectedFaces.add(triangle);
+
+  const selectedIndices: number[] = [];
+  for (const triangle of selectedFaces) {
+    const offset = triangle * 3;
+    selectedIndices.push(
+      sourceIndex.getX(offset),
+      sourceIndex.getX(offset + 1),
+      sourceIndex.getX(offset + 2),
+    );
+  }
+  if (selectedIndices.length < 3) return null;
+
+  const remap = new Map<number, number>();
+  const uniqueVertices: number[] = [];
+  const compactIndices = new Uint32Array(selectedIndices.length);
+  for (let i = 0; i < selectedIndices.length; i++) {
+    const original = selectedIndices[i];
+    let compact = remap.get(original);
+    if (compact === undefined) {
+      compact = uniqueVertices.length;
+      remap.set(original, compact);
+      uniqueVertices.push(original);
+    }
+    compactIndices[i] = compact;
+  }
+
+  const proxy = new BufferGeometry();
+  for (const [name, attribute] of Object.entries(source.attributes)) {
+    if (attribute.count !== position.count || !includeAttribute(name)) continue;
+    const values = createAttributeArray(attribute, uniqueVertices.length * attribute.itemSize);
+    for (let i = 0; i < uniqueVertices.length; i++) {
+      const target = i * attribute.itemSize;
+      for (let component = 0; component < attribute.itemSize; component++) {
+        values[target + component] = attribute.getComponent(uniqueVertices[i], component);
+      }
+    }
+    proxy.setAttribute(name, new BufferAttribute(values, attribute.itemSize, attribute.normalized));
+  }
+  proxy.setIndex(new BufferAttribute(compactIndices, 1));
+  if (source.groups.length === 1) {
+    proxy.addGroup(0, compactIndices.length, source.groups[0].materialIndex);
+  }
+  return proxy;
+}
+
+/**
+ * Build a compact projection source with meshoptimizer's surface-aware
+ * reduction. A regular stride sample is a safe last resort for malformed
+ * assets, but it can leave large gaps in a scan and produce mostly-empty bake
+ * atlases. The reduced proxy keeps a representative surface across the whole
+ * model while remaining far below the full source memory footprint.
+ */
+async function buildLargeMeshTextureProxy(
+  source: import('three').BufferGeometry,
+  maximumTriangles: number,
+): Promise<import('three').BufferGeometry | null> {
+  // The projection proxy is texture truth, so every proxy triangle must be an
+  // actual source triangle with its original UV triplet. Meshoptimizer's
+  // permissive reduction creates new faces between surviving vertices; those
+  // faces can cross unrelated UV islands and make one surface sample texture
+  // patches from the opposite side. A dense, evenly distributed sample of
+  // original faces is disconnected but ideal for nearest-surface BVH lookup.
+  // This branch is used only for scan-sized meshes; ordinary assets continue
+  // to project through their established complete-source path.
+  return buildLargeMeshRepairProxy(
+    source,
+    maximumTriangles,
+    (name) => name === 'position' || name.startsWith('uv'),
+  );
 }
 
 function criticalPositionKey(x: number, y: number, z: number): string {
@@ -1009,10 +1242,17 @@ const AXIS_REPAIR_VIEWS: RepairProjectionView[] = [
 // The repair scorer compares every missing source point against every
 // simplified face. That exhaustive pass is valuable on ordinary assets, but
 // it becomes quadratic (and unbounded in browser memory) on scan-sized meshes
-// such as a million-triangle bread model. Large meshes already get the
+// such as million-triangle scans. Large meshes already get the
 // topology-safe meshoptimizer reduction; skip only the expensive reinjection
 // search and keep the generated LOD instead of taking the page down.
 const MAX_EXHAUSTIVE_REPAIR_SOURCE_TRIANGLES = 250_000;
+// The repair proxy feeds a curvature/silhouette scorer, not the exported
+// surface. Roughly 24k evenly spread source faces retain far more detail than
+// the deepest LOD while keeping its point map comfortably within browser
+// memory. Reuse this one proxy across every requested level.
+const MAX_LARGE_MESH_REPAIR_PROXY_TRIANGLES = 24_000;
+const MAX_LARGE_MESH_TEXTURE_PROXY_TRIANGLES = 120_000;
+const MAX_LARGE_MESH_TEXTURE_BAKE_TRIANGLES = 250_000;
 
 // Selected-to-active baking builds a BVH over the full source mesh and then
 // rasterizes every generated LOD. Keep that high-quality path for normal-sized
@@ -1448,8 +1688,18 @@ export async function optimizeGltf(
         ? rec.sourceGeometry.index.count / 3
         : rec.sourceGeometry.attributes.position.count / 3;
       let textureBaker: import('./lod-texture-baker.js').LodTextureBaker | null = null;
+      let textureProjectionSource: import('three').BufferGeometry | null = null;
       const isBrowser = typeof __IS_BROWSER__ !== 'undefined' && __IS_BROWSER__;
       const canBakeBrowserTextures = sourceTriCount <= MAX_BROWSER_TEXTURE_BAKE_SOURCE_TRIANGLES;
+      const hasExplicitSmallLodTarget = (opts.lodTriangleTargets ?? []).some(
+        (target) =>
+          Number.isFinite(target) && target > 0 && target <= MAX_LARGE_MESH_TEXTURE_BAKE_TRIANGLES,
+      );
+      const shouldBakeLargeTextures =
+        isBrowser && !canBakeBrowserTextures && (lodCount >= 4 || hasExplicitSmallLodTarget);
+      // Keep ordinary assets on their established baker path. Scan-sized
+      // sources defer BVH construction until after simplification so its
+      // transient buffers do not overlap meshoptimizer's full-source buffers.
       if (isBrowser && canBakeBrowserTextures) {
         try {
           const { createLodTextureBaker } = await import('./lod-texture-baker.js');
@@ -1472,67 +1722,149 @@ export async function optimizeGltf(
           : geo.clone();
       const ownsLodSource = lodSource !== geo;
       if (ownsLodSource) lodSource.computeVertexNormals();
-      const generatedLods = await generateLodGeometries(
-        lodSource,
-        lodCount,
-        opts.lodTriangleTargets,
-        (pct) => {
-          const base = 0.35 + (recordIndex / Math.max(1, records.length)) * 0.55;
-          const span = 0.55 / Math.max(1, records.length);
-          progress('optimize', base + span * pct);
-        },
-      );
+      let generatedLods: GeneratedLodGeometry[];
+      try {
+        generatedLods = await generateLodGeometries(
+          lodSource,
+          lodCount,
+          opts.lodTriangleTargets,
+          (pct) => {
+            const base = 0.35 + (recordIndex / Math.max(1, records.length)) * 0.55;
+            const span = 0.55 / Math.max(1, records.length);
+            progress('optimize', base + span * pct);
+          },
+        );
+      } catch (error) {
+        textureBaker?.dispose?.();
+        if (ownsLodSource) lodSource.dispose();
+        throw error;
+      }
       if (ownsLodSource) lodSource.dispose();
 
-      for (const result of generatedLods) {
-        let lodGeometry = result.geometry;
-        let lodMaterial = rec.mesh.material;
-        // Rebuild the UV layout and reproject the source textures for every
-        // generated LOD. Even the relatively dense LOD1/LOD2 can contain
-        // collapsed edges that span a UV seam; retaining the original atlas
-        // then stretches one island across the new triangle (the visible
-        // streaks/patches users see on broad surfaces). A fresh atlas keeps
-        // each LOD's UVs one-to-one with its simplified topology, while the
-        // selected-to-active bake preserves the original texture detail.
-        if (textureBaker) {
-          const baked = await textureBaker.bake(
-            result.geometry,
-            result.level,
-            result.triangleCount,
-            Math.round(sourceTriCount),
+      if (shouldBakeLargeTextures) {
+        await yieldToMainThread();
+        try {
+          const { createLodTextureBaker } = await import('./lod-texture-baker.js');
+          textureBaker = await createLodTextureBaker(
+            rec.sourceGeometry,
+            rec.mesh.material,
+            maxTex,
+            {
+              directProjectionSource: true,
+              highDetailAtlases: true,
+              paddingOnly: true,
+            },
           );
-          if (baked) {
-            result.geometry.dispose();
-            lodGeometry = baked.geometry;
-            lodMaterial = baked.material;
-            changes.push({
-              kind: 'texture-bake',
-              detail: `${rec.mesh.name || 'mesh'}: LOD${result.level} reprojected ${baked.textureCount} texture${baked.textureCount === 1 ? '' : 's'} to a ${baked.resolution}px atlas`,
-              sizeAfter: baked.resolution,
-            });
+        } catch {
+          // An exact BVH is the quality-first path. A browser with an unusually
+          // tight allocation limit can still fall back to a dense sample of
+          // intact source faces; unlike a simplified proxy, it never invents
+          // triangles between unrelated UV islands.
+        }
+        if (!textureBaker) {
+          textureProjectionSource = await buildLargeMeshTextureProxy(
+            rec.sourceGeometry,
+            MAX_LARGE_MESH_TEXTURE_PROXY_TRIANGLES,
+          );
+          if (textureProjectionSource) {
+            try {
+              const { createLodTextureBaker } = await import('./lod-texture-baker.js');
+              textureBaker = await createLodTextureBaker(
+                textureProjectionSource,
+                rec.mesh.material,
+                maxTex,
+                {
+                  highDetailAtlases: true,
+                  paddingOnly: true,
+                },
+              );
+            } catch {
+              // Keep the seam-preserving UV geometry if projection setup is
+              // unavailable even with the bounded intact-face fallback.
+            }
           }
         }
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const lodMesh = new (rec.mesh.constructor as any)();
-        lodMesh.geometry = lodGeometry;
-        lodMesh.material = lodMaterial;
-        lodMesh.name = `${rec.mesh.name || 'mesh'}_LOD${result.level}`;
-        lodMesh.position.copy(rec.mesh.position);
-        lodMesh.rotation.copy(rec.mesh.rotation);
-        lodMesh.scale.copy(rec.mesh.scale);
-        const parent = rec.mesh.parent;
-        if (parent) {
-          parent.add(lodMesh);
-        } else {
-          rec.mesh.add(lodMesh);
+        if (!textureBaker) {
+          textureProjectionSource?.dispose();
+          textureProjectionSource = null;
         }
-        changes.push({
-          kind: 'lod',
-          detail: `${rec.mesh.name || 'mesh'}: LOD${result.level} = ${result.triangleCount} tris${result.restoredVertices ? `, restored ${result.restoredVertices} critical vert${result.restoredVertices === 1 ? 'ex' : 'ices'}` : ''}${result.safePlateau ? ' (safe plateau)' : ''}`,
-          trianglesBefore: previousTriangles,
-          trianglesAfter: result.triangleCount,
-        });
-        previousTriangles = result.triangleCount;
+      }
+
+      // Baking allocates a fresh atlas/material per level. Always release the
+      // retained source BVH and proxy geometry, including when a browser
+      // texture readback or an exporter-facing operation throws midway
+      // through the level loop. A failed preview must not poison the next
+      // ordinary-asset run with the previous run's native buffers still live.
+      try {
+        for (const result of generatedLods) {
+          let lodGeometry = result.geometry;
+          let lodMaterial = rec.mesh.material;
+          // Rebuild the UV layout and reproject the source textures for every
+          // generated LOD. Even the relatively dense LOD1/LOD2 can contain
+          // collapsed edges that span a UV seam; retaining the original atlas
+          // then stretches one island across the new triangle (the visible
+          // streaks/patches users see on broad surfaces). A fresh atlas keeps
+          // each LOD's UVs one-to-one with its simplified topology, while the
+          // selected-to-active bake preserves the original texture detail.
+          const shouldBakeTexture =
+            textureBaker &&
+            !result.safePlateau &&
+            (canBakeBrowserTextures ||
+              result.triangleCount <= MAX_LARGE_MESH_TEXTURE_BAKE_TRIANGLES);
+          if (shouldBakeTexture && textureBaker) {
+            let baked: Awaited<ReturnType<typeof textureBaker.bake>> = null;
+            try {
+              baked = await textureBaker.bake(
+                result.geometry,
+                result.level,
+                result.triangleCount,
+                Math.round(sourceTriCount),
+              );
+            } catch {
+              // Keep the seam-preserving UV geometry if a browser-specific
+              // atlas or pixel-readback operation cannot complete for a level.
+            }
+            if (baked) {
+              result.geometry.dispose();
+              lodGeometry = baked.geometry;
+              lodMaterial = baked.material;
+              changes.push({
+                kind: 'texture-bake',
+                detail: `${rec.mesh.name || 'mesh'}: LOD${result.level} reprojected ${baked.textureCount} texture${baked.textureCount === 1 ? '' : 's'} to a ${baked.resolution}px atlas`,
+                sizeAfter: baked.resolution,
+              });
+            }
+          }
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const lodMesh = new (rec.mesh.constructor as any)();
+          lodMesh.geometry = lodGeometry;
+          lodMesh.material = lodMaterial;
+          lodMesh.name = `${rec.mesh.name || 'mesh'}_LOD${result.level}`;
+          lodMesh.position.copy(rec.mesh.position);
+          lodMesh.rotation.copy(rec.mesh.rotation);
+          lodMesh.scale.copy(rec.mesh.scale);
+          const parent = rec.mesh.parent;
+          if (parent) {
+            parent.add(lodMesh);
+          } else {
+            rec.mesh.add(lodMesh);
+          }
+          changes.push({
+            kind: 'lod',
+            detail: `${rec.mesh.name || 'mesh'}: LOD${result.level} = ${result.triangleCount} tris${result.restoredVertices ? `, restored ${result.restoredVertices} critical vert${result.restoredVertices === 1 ? 'ex' : 'ices'}` : ''}${result.safePlateau ? ' (safe plateau)' : ''}`,
+            trianglesBefore: previousTriangles,
+            trianglesAfter: result.triangleCount,
+          });
+          previousTriangles = result.triangleCount;
+        }
+      } finally {
+        textureBaker?.dispose?.();
+        textureProjectionSource?.dispose();
+        // `BufferGeometry.dispose()` releases renderer state, while the baker
+        // closure still owns its BVH and CPU typed arrays. Drop both strong
+        // references before GLTFExporter performs its largest allocation.
+        textureBaker = null;
+        textureProjectionSource = null;
       }
       progress('optimize', 0.35 + ((recordIndex + 1) / Math.max(1, records.length)) * 0.55);
     }
@@ -1622,34 +1954,102 @@ export async function optimizeGltf(
   }
   progress('optimize', 1);
 
+  // The optimized scene is already in memory. Inspect it directly before
+  // export; parsing a 55+ MB exported GLB again creates another full
+  // geometry/texture graph at the exact peak of the operation.
+  progress('inspect', 0);
+  const postStats = inspectScene(gltf.scene, gltf.animations);
+  progress('inspect', 1);
+
   // Export back to glb
   progress('export', 0);
   let optimized: Uint8Array;
   try {
     optimized = await exportGltf(gltf);
   } catch (e) {
+    disposeOptimizationScene(
+      gltf.scene,
+      records.map((record) => record.sourceGeometry),
+    );
     throw new Error(`export failed: ${(e as Error).message}`);
   }
+  // GLTFExporter has copied the scene into the output buffer. Release the
+  // parsed source, LOD clones, decoded images, and repair-source clones before
+  // the preview loader allocates the output scene. Without this handoff, each
+  // repeated preview kept another complete set of GPU/JS buffers
+  // alive until the browser decided to collect them, which could take the
+  // tab down before the next optimization finished.
+  disposeOptimizationScene(
+    gltf.scene,
+    records.map((record) => record.sourceGeometry),
+  );
   progress('export', 1);
-  progress('inspect', 0);
-  let postStats;
-  try {
-    postStats = await inspectGltf(optimized);
-  } catch (e) {
-    throw new Error(`inspect after optimize failed: ${(e as Error).message}`);
-  }
-  progress('inspect', 1);
   return { data: optimized, stats: postStats, changes };
 }
 
 // --- helpers ---
 
-function loadGltf(buf: ArrayBuffer): Promise<{ scene: import('three').Group }> {
+const OPTIMIZATION_TEXTURE_SLOTS = [
+  'map',
+  'normalMap',
+  'roughnessMap',
+  'metalnessMap',
+  'aoMap',
+  'emissiveMap',
+  'bumpMap',
+  'displacementMap',
+  'alphaMap',
+  'clearcoatMap',
+  'clearcoatNormalMap',
+  'clearcoatRoughnessMap',
+  'sheenColorMap',
+  'sheenRoughnessMap',
+  'specularIntensityMap',
+  'specularColorMap',
+  'transmissionMap',
+  'thicknessMap',
+  'iridescenceMap',
+  'iridescenceThicknessMap',
+] as const;
+
+/** Release all transient resources allocated by one optimization pass. */
+function disposeOptimizationScene(
+  scene: import('three').Object3D,
+  extraGeometries: import('three').BufferGeometry[] = [],
+): void {
+  const geometries = new Set<import('three').BufferGeometry>();
+  const materials = new Set<import('three').Material>();
+  const textures = new Set<import('three').Texture>();
+  for (const geometry of extraGeometries) geometries.add(geometry);
+  scene.traverse((obj) => {
+    const mesh = obj as import('three').Mesh;
+    if (mesh.geometry) geometries.add(mesh.geometry);
+    if (!mesh.material) return;
+    const list = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    for (const material of list) {
+      materials.add(material);
+      const record = material as unknown as Record<string, unknown>;
+      for (const slot of OPTIMIZATION_TEXTURE_SLOTS) {
+        const texture = record[slot];
+        if (texture && typeof texture === 'object' && 'dispose' in texture) {
+          textures.add(texture as import('three').Texture);
+        }
+      }
+    }
+  });
+  for (const geometry of geometries) geometry.dispose();
+  for (const texture of textures) texture.dispose();
+  for (const material of materials) material.dispose();
+}
+
+function loadGltf(
+  buf: ArrayBuffer,
+): Promise<{ scene: import('three').Group; animations: import('three').AnimationClip[] }> {
   return new Promise((resolve, reject) => {
     new GLTFLoader().parse(
       buf,
       '',
-      (g) => resolve({ scene: g.scene }),
+      (g) => resolve({ scene: g.scene, animations: g.animations }),
       (err) => reject(err instanceof Error ? err : new Error(String(err))),
     );
   });
@@ -2060,9 +2460,19 @@ export function vertexClusteringDecimate(
 export async function meshoptDecimate(
   src: import('three').BufferGeometry,
   targetTris: number,
+  largeMeshRepairProxy?: import('three').BufferGeometry,
 ): Promise<CriticalVertexRepairResult | null> {
   const simplified = await meshoptDecimateRaw(src, targetTris);
-  return simplified ? finishDecimation(src, simplified, targetTris) : null;
+  if (!simplified) return null;
+  const sourceTriangles = src.index
+    ? Math.floor(src.index.count / 3)
+    : Math.floor(src.attributes.position.count / 3);
+  if (sourceTriangles > MAX_EXHAUSTIVE_REPAIR_SOURCE_TRIANGLES) {
+    // Give V8 a collection point after meshoptimizer releases its full-source
+    // index/position work buffers and before feature repair allocates maps.
+    await yieldToMainThread();
+  }
+  return finishDecimation(src, simplified, targetTris, largeMeshRepairProxy);
 }
 
 /**
@@ -2092,20 +2502,80 @@ async function meshoptDecimateRaw(
   // layout; when that path reaches its safe limit, the LOD generator reports
   // a plateau instead of producing a visibly corrupted texture.
   if (src.index && src.attributes.uv) {
+    const largeMesh = sourceTriangles > MAX_EXHAUSTIVE_REPAIR_SOURCE_TRIANGLES;
+    const allowDeepPermissive =
+      largeMesh && target <= Math.max(DEFAULT_DEEPEST_LOD_TRIANGLE_CAP, sourceTriangles * 0.12);
+    let largeMeshFallback: {
+      geometry: import('three').BufferGeometry;
+      triangleCount: number;
+    } | null = null;
+    const releaseLargeMeshFallback = (): void => {
+      largeMeshFallback?.geometry.dispose();
+      largeMeshFallback = null;
+    };
+    const retainLargeMeshFallback = (candidate: {
+      geometry: import('three').BufferGeometry;
+      triangleCount: number;
+    }): void => {
+      if (!largeMeshFallback || candidate.triangleCount < largeMeshFallback.triangleCount) {
+        largeMeshFallback?.geometry.dispose();
+        largeMeshFallback = candidate;
+      } else {
+        candidate.geometry.dispose();
+      }
+    };
     // On scan-sized meshes, prefer meshoptimizer's position-only index
     // simplifier. The attribute-update variant is fast and excellent for
     // ordinary assets, but its permissive updates can fold broad triangles
     // through the surface when removing hundreds of thousands of faces. The
     // index-only path keeps every surviving source vertex/UV pair intact and
     // is the safer geometry-first choice at this scale.
-    if (sourceTriangles > MAX_EXHAUSTIVE_REPAIR_SOURCE_TRIANGLES) {
+    if (largeMesh) {
+      // Explicit low-poly targets already require relaxing the scan's enormous
+      // number of UV borders. Run that single bounded pass first. Previously
+      // we built and retained a ~942k-triangle LockBorder fallback before the
+      // permissive pass, briefly duplicating most of the scan in memory even
+      // though the fallback was immediately discarded.
+      if (allowDeepPermissive) {
+        const permissive = await decimateIndexedUvMesh(src, sourceIndices, target, ['Permissive']);
+        if (permissive && permissive.triangleCount < sourceTriangles) {
+          return permissive;
+        }
+        if (permissive) retainLargeMeshFallback(permissive);
+      }
+
       const uvSafe = await decimateIndexedUvMesh(src, sourceIndices, target, ['LockBorder']);
-      if (uvSafe) return uvSafe;
+      if (uvSafe && uvSafe.triangleCount <= target) return uvSafe;
+      if (uvSafe) retainLargeMeshFallback(uvSafe);
+
+      // Once a large mesh is in the deep-target regime, trying the attribute
+      // and second UV strategies as well only creates more full-size working
+      // buffers. Return the border-safe result if the bounded permissive pass
+      // was unavailable.
+      if (allowDeepPermissive) {
+        if (largeMeshFallback) return largeMeshFallback;
+      }
     }
     const attributeAware = await decimateWithAttributes(src, sourceIndices, target);
-    if (attributeAware) return attributeAware;
+    if (attributeAware && (!allowDeepPermissive || attributeAware.triangleCount <= target)) {
+      releaseLargeMeshFallback();
+      return attributeAware;
+    }
+    if (attributeAware) retainLargeMeshFallback(attributeAware);
     const uvSafe = await decimateIndexedUvMesh(src, sourceIndices, target);
-    if (uvSafe) return uvSafe;
+    if (uvSafe && (!allowDeepPermissive || uvSafe.triangleCount <= target)) {
+      releaseLargeMeshFallback();
+      return uvSafe;
+    }
+    if (uvSafe) retainLargeMeshFallback(uvSafe);
+
+    // LockBorder is the right default for preserving ordinary UV islands, but
+    // on scan meshes it can freeze almost every seam and leave LOD4 at
+    // hundreds of thousands of triangles. Only the deepest automatic-sized
+    // reduction is allowed to relax those locks. The resulting triangles
+    // still reference original position/UV pairs (no attribute synthesis),
+    // and the non-manifold repair below keeps exceptional edges renderable.
+    if (largeMeshFallback) return largeMeshFallback;
   }
 
   // Weld exact duplicate positions for the simplifier only. Keep one
@@ -2355,17 +2825,13 @@ function compactGeometry(geometry: import('three').BufferGeometry, indices: Uint
   const vertexCount = geometry.attributes.position.count;
   const [remap, unique] = MeshoptSimplifier.compactMesh(indices);
   for (const [name, attribute] of Object.entries(geometry.attributes)) {
-    if (attribute.count !== vertexCount || 'data' in attribute) continue;
-    const Ctor = attribute.array.constructor as new (
-      length: number,
-    ) => Float32Array | Uint8Array | Uint16Array | Uint32Array;
-    const values = new Ctor(unique * attribute.itemSize);
+    if (attribute.count !== vertexCount) continue;
+    const values = createAttributeArray(attribute, unique * attribute.itemSize);
     for (let old = 0; old < vertexCount; old++) {
       const next = remap[old];
       if (next === 0xffffffff) continue;
       for (let component = 0; component < attribute.itemSize; component++) {
-        values[next * attribute.itemSize + component] =
-          attribute.array[old * attribute.itemSize + component];
+        values[next * attribute.itemSize + component] = attribute.getComponent(old, component);
       }
     }
     geometry.setAttribute(
@@ -2373,6 +2839,65 @@ function compactGeometry(geometry: import('three').BufferGeometry, indices: Uint
       new BufferAttribute(values, attribute.itemSize, attribute.normalized),
     );
   }
+}
+
+/**
+ * Create a compact geometry without first cloning the complete source.
+ * Large scan meshes can have millions of vertices while a deep LOD references
+ * only a few hundred of them; the direct build keeps the peak allocation
+ * proportional to the requested LOD instead of briefly holding two full
+ * copies of the source attributes.
+ */
+function createCompactedGeometry(
+  source: import('three').BufferGeometry,
+  indices: Uint32Array,
+): import('three').BufferGeometry | null {
+  const position = source.attributes.position;
+  if (!position || indices.length < 3) return null;
+  const [remap, unique] = MeshoptSimplifier.compactMesh(indices);
+  const geometry = new BufferGeometry();
+  for (const [name, attribute] of Object.entries(source.attributes)) {
+    if (attribute.count !== position.count) continue;
+    const values = createAttributeArray(attribute, unique * attribute.itemSize);
+    for (let old = 0; old < position.count; old++) {
+      const next = remap[old];
+      if (next === 0xffffffff) continue;
+      for (let component = 0; component < attribute.itemSize; component++) {
+        values[next * attribute.itemSize + component] = attribute.getComponent(old, component);
+      }
+    }
+    geometry.setAttribute(
+      name,
+      new BufferAttribute(values, attribute.itemSize, attribute.normalized),
+    );
+  }
+  // Keep morph targets aligned with the compacted vertex stream. Most glTF
+  // props do not use morphs, but dropping them here would make the memory-safe
+  // large-mesh path a surprising regression for animated assets.
+  for (const [name, morphs] of Object.entries(source.morphAttributes)) {
+    geometry.morphAttributes[name] = morphs
+      .filter((attribute) => attribute.count === position.count)
+      .map((attribute) => {
+        const values = createAttributeArray(attribute, unique * attribute.itemSize);
+        for (let old = 0; old < position.count; old++) {
+          const next = remap[old];
+          if (next === 0xffffffff) continue;
+          for (let component = 0; component < attribute.itemSize; component++) {
+            values[next * attribute.itemSize + component] = attribute.getComponent(old, component);
+          }
+        }
+        return new BufferAttribute(values, attribute.itemSize, attribute.normalized);
+      });
+  }
+  geometry.morphTargetsRelative = source.morphTargetsRelative;
+  geometry.setIndex(new BufferAttribute(indices, 1));
+  if (source.groups.length === 1) {
+    const group = source.groups[0];
+    geometry.addGroup(0, indices.length, group.materialIndex);
+  }
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+  return geometry;
 }
 
 async function decimateIndexedUvMesh(
@@ -2405,8 +2930,12 @@ async function decimateIndexedUvMesh(
     if (indices.length <= targetIndexCount) break;
   }
   if (!best || best.length >= sourceIndices.length) return null;
-  const geometry = source.clone();
-  geometry.setIndex(new BufferAttribute(best, 1));
+  // A reduced index buffer may reference only a tiny fraction of a large
+  // source mesh. Build the compact geometry directly from the selected
+  // vertices; cloning the full 1.8M-vertex source first is enough to crash a
+  // constrained browser tab when several manual LOD targets are requested.
+  const geometry = createCompactedGeometry(source, best);
+  if (!geometry) return null;
   if (source.groups.length === 1) {
     const group = source.groups[0];
     geometry.clearGroups();
@@ -2751,9 +3280,9 @@ export function edgeCollapseDecimate(
   // topology-safe sharp collapses is what lets an icosahedron/cube reach
   // genuinely tiny LOD targets.
   const allowSharpCollapses = triCount0 <= 128;
-  // Assets without normals (including the supplied item-bag) cannot use
-  // normal continuity as a seam signal, so allow their boundary-adjacent
-  // interior edges and rely on the link/face checks instead.
+  // Assets without normals cannot use normal continuity as a seam signal, so
+  // allow their boundary-adjacent interior edges and rely on the link/face
+  // checks instead.
   const allowBoundaryVertexCollapses = !normArr || triCount0 <= 128;
   // Working copy of the index buffer. We mark dropped triangles by
   // setting all three indices to the same value (vCount, an out-of-range

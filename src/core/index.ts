@@ -30,7 +30,7 @@ import {
 export * from '../shared/options.js';
 export * from './errors.js';
 export { getAssimp } from './assimpLoader.js';
-export { inspectGltf } from './inspect.js';
+export { inspectGltf, inspectScene } from './inspect.js';
 export { optimizeGltf, type OptimizeResult, type OptimizeChange } from './optimize.js';
 
 const DEFAULT_MAX_INPUT_BYTES = 200 * 1024 * 1024; // 200 MB

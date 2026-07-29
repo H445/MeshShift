@@ -33,7 +33,9 @@ if (typeof __IS_BROWSER__ !== 'undefined' && !__IS_BROWSER__) {
       onload: (() => void) | null = null;
       onerror: ((e: unknown) => void) | null = null;
       private _src = '';
-      get src(): string { return this._src; }
+      get src(): string {
+        return this._src;
+      }
       set src(v: string) {
         this._src = v;
         // Resolve as a successful empty image. Use queueMicrotask so
@@ -58,7 +60,9 @@ if (typeof __IS_BROWSER__ !== 'undefined' && !__IS_BROWSER__) {
             if (typeof blob.arrayBuffer === 'function') {
               this.result = asArrayBuffer(await blob.arrayBuffer());
             } else if (blob instanceof Uint8Array) {
-              this.result = asArrayBuffer(blob.buffer.slice(blob.byteOffset, blob.byteOffset + blob.byteLength));
+              this.result = asArrayBuffer(
+                blob.buffer.slice(blob.byteOffset, blob.byteOffset + blob.byteLength),
+              );
             } else if (blob instanceof ArrayBuffer) {
               this.result = blob;
             } else {
@@ -78,8 +82,12 @@ if (typeof __IS_BROWSER__ !== 'undefined' && !__IS_BROWSER__) {
         queueMicrotask(async () => {
           try {
             let buf: ArrayBuffer;
-            if (typeof blob.arrayBuffer === 'function') buf = asArrayBuffer(await blob.arrayBuffer());
-            else if (blob instanceof Uint8Array) buf = asArrayBuffer(blob.buffer.slice(blob.byteOffset, blob.byteOffset + blob.byteLength));
+            if (typeof blob.arrayBuffer === 'function')
+              buf = asArrayBuffer(await blob.arrayBuffer());
+            else if (blob instanceof Uint8Array)
+              buf = asArrayBuffer(
+                blob.buffer.slice(blob.byteOffset, blob.byteOffset + blob.byteLength),
+              );
             else buf = blob;
             const u8 = new Uint8Array(buf);
             let bin = '';
@@ -99,8 +107,12 @@ if (typeof __IS_BROWSER__ !== 'undefined' && !__IS_BROWSER__) {
         queueMicrotask(async () => {
           try {
             let buf: ArrayBuffer;
-            if (typeof blob.arrayBuffer === 'function') buf = asArrayBuffer(await blob.arrayBuffer());
-            else if (blob instanceof Uint8Array) buf = asArrayBuffer(blob.buffer.slice(blob.byteOffset, blob.byteOffset + blob.byteLength));
+            if (typeof blob.arrayBuffer === 'function')
+              buf = asArrayBuffer(await blob.arrayBuffer());
+            else if (blob instanceof Uint8Array)
+              buf = asArrayBuffer(
+                blob.buffer.slice(blob.byteOffset, blob.byteOffset + blob.byteLength),
+              );
             else buf = blob;
             this.result = new TextDecoder().decode(buf);
             this.onload?.({ target: this });
@@ -120,9 +132,19 @@ if (typeof __IS_BROWSER__ !== 'undefined' && !__IS_BROWSER__) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     g.Blob = class NodeBlob {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      constructor(public parts: any[], public opts: any = {}) {}
-      get size() { return this.parts.reduce((s: number, p: any) => s + (p?.byteLength ?? p?.size ?? p?.length ?? 0), 0); }
-      get type() { return this.opts.type ?? ''; }
+      constructor(
+        public parts: any[],
+        public opts: any = {},
+      ) {}
+      get size() {
+        return this.parts.reduce(
+          (s: number, p: any) => s + (p?.byteLength ?? p?.size ?? p?.length ?? 0),
+          0,
+        );
+      }
+      get type() {
+        return this.opts.type ?? '';
+      }
       async arrayBuffer(): Promise<ArrayBuffer> {
         const out = new Uint8Array(this.size);
         let off = 0;
@@ -152,7 +174,10 @@ function asArrayBuffer(ab: ArrayBuffer | SharedArrayBuffer): ArrayBuffer {
   return out;
 }
 
-function geomTriangleCount(geo: { index: { count: number } | null; attributes: Record<string, { count: number }> }): number {
+function geomTriangleCount(geo: {
+  index: { count: number } | null;
+  attributes: Record<string, { count: number }>;
+}): number {
   if (geo.index) return geo.index.count / 3;
   const pos = geo.attributes.position;
   return pos ? pos.count / 3 : 0;
@@ -163,7 +188,16 @@ function geomVertexCount(geo: { attributes: Record<string, { count: number }> })
 }
 
 /** Compute axis-aligned bounding box of a buffer geometry. */
-function computeBBox(geo: { attributes: { position?: { array: Float32Array | ArrayLike<number> } } }): {
+function computeBBox(geo: {
+  attributes: {
+    position?: {
+      count: number;
+      getX: (index: number) => number;
+      getY: (index: number) => number;
+      getZ: (index: number) => number;
+    };
+  };
+}): {
   min: [number, number, number];
   max: [number, number, number];
 } {
@@ -171,9 +205,10 @@ function computeBBox(geo: { attributes: { position?: { array: Float32Array | Arr
   const min: [number, number, number] = [Infinity, Infinity, Infinity];
   const max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
   if (!pos) return { min: [0, 0, 0], max: [0, 0, 0] };
-  const a = pos.array;
-  for (let i = 0; i < a.length; i += 3) {
-    const x = a[i], y = a[i + 1], z = a[i + 2];
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const y = pos.getY(i);
+    const z = pos.getZ(i);
     if (x < min[0]) min[0] = x;
     if (y < min[1]) min[1] = y;
     if (z < min[2]) min[2] = z;
@@ -189,10 +224,15 @@ function computeBBox(geo: { attributes: { position?: { array: Float32Array | Arr
  * Throws on parse failure.
  */
 export function inspectGltf(buf: ArrayBuffer | Uint8Array): Promise<InspectResult> {
-  const ab = buf instanceof Uint8Array
-    // Copy into a fresh ArrayBuffer in case the input buffer is shared.
-    ? (() => { const a = new ArrayBuffer(buf.byteLength); new Uint8Array(a).set(buf); return a; })()
-    : asArrayBuffer(buf);
+  const ab =
+    buf instanceof Uint8Array
+      ? // Copy into a fresh ArrayBuffer in case the input buffer is shared.
+        (() => {
+          const a = new ArrayBuffer(buf.byteLength);
+          new Uint8Array(a).set(buf);
+          return a;
+        })()
+      : asArrayBuffer(buf);
   return new Promise((resolve, reject) => {
     new GLTFLoader().parse(
       ab,
@@ -210,7 +250,24 @@ export function inspectGltf(buf: ArrayBuffer | Uint8Array): Promise<InspectResul
   });
 }
 
-function walkScene(gltf: { scene: unknown; scenes: unknown[]; animations: unknown[] }): InspectResult {
+/**
+ * Inspect an already-loaded three.js scene without serializing and parsing it
+ * again. The optimizer uses this before export to avoid a second 50–70 MB GLB
+ * copy plus another complete GLTFLoader scene at peak memory.
+ */
+export function inspectScene(scene: unknown, animations: readonly unknown[] = []): InspectResult {
+  return walkScene({
+    scene,
+    scenes: [scene],
+    animations: [...animations],
+  });
+}
+
+function walkScene(gltf: {
+  scene: unknown;
+  scenes: unknown[];
+  animations: unknown[];
+}): InspectResult {
   // Walk the scene graph. We use the `gltf.scene` root.
   // Cast through unknown — three.js's `Object3D` is the actual type.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -231,72 +288,89 @@ function walkScene(gltf: { scene: unknown; scenes: unknown[]; animations: unknow
   const min: [number, number, number] = [Infinity, Infinity, Infinity];
   const max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
 
-  root.traverse((obj: {
-    isMesh?: boolean;
-    isSkinnedMesh?: boolean;
-    geometry?: unknown;
-    material?: unknown;
-    materials?: unknown[];
-    skeleton?: { bones?: unknown[] };
-    morphTargetInfluences?: unknown;
-  }) => {
-    if (obj.isMesh || obj.isSkinnedMesh) {
-      meshes.push(obj);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const geo = obj.geometry as any;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const morph = (geo as any).morphAttributes;
-      if (morph && (morph.position || morph.normal || morph.color)) hasMorph = true;
-
-      triangles += geomTriangleCount(geo);
-      vertices += geomVertexCount(geo);
-
-      const bb = computeBBox(geo);
-      if (bb.min[0] < min[0]) min[0] = bb.min[0];
-      if (bb.min[1] < min[1]) min[1] = bb.min[1];
-      if (bb.min[2] < min[2]) min[2] = bb.min[2];
-      if (bb.max[0] > max[0]) max[0] = bb.max[0];
-      if (bb.max[1] > max[1]) max[1] = bb.max[1];
-      if (bb.max[2] > max[2]) max[2] = bb.max[2];
-
-      // Material(s) — Mesh can have an array of materials (multi-material mesh).
-      const mats = (obj.materials as unknown[] | undefined) ?? (obj.material ? [obj.material] : []);
-      for (const m of mats) {
-        if (m) materials.add(m);
-        // Collect texture refs from the material (three.js standard / physical).
+  root.traverse(
+    (obj: {
+      isMesh?: boolean;
+      isSkinnedMesh?: boolean;
+      geometry?: unknown;
+      material?: unknown;
+      materials?: unknown[];
+      skeleton?: { bones?: unknown[] };
+      morphTargetInfluences?: unknown;
+    }) => {
+      if (obj.isMesh || obj.isSkinnedMesh) {
+        meshes.push(obj);
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const mAny = m as any;
-        const texProps = [
-          'map', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap',
-          'emissiveMap', 'bumpMap', 'displacementMap', 'alphaMap',
-          'clearcoatMap', 'clearcoatNormalMap', 'clearcoatRoughnessMap',
-          'sheenColorMap', 'sheenRoughnessMap', 'specularIntensityMap',
-          'specularColorMap', 'transmissionMap', 'thicknessMap', 'iridescenceMap',
-          'iridescenceThicknessMap',
-        ];
-        for (const k of texProps) {
-          const t = mAny?.[k];
-          if (t && t.image) {
-            textures.add(t);
-            const img = t.image;
-            if (!seenTextureImages.has(img)) {
-              seenTextureImages.add(img);
-              textureList.push({
-                name: t.name || k,
-                width: img.width || 0,
-                height: img.height || 0,
-              });
+        const geo = obj.geometry as any;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const morph = (geo as any).morphAttributes;
+        if (morph && (morph.position || morph.normal || morph.color)) hasMorph = true;
+
+        triangles += geomTriangleCount(geo);
+        vertices += geomVertexCount(geo);
+
+        const bb = computeBBox(geo);
+        if (bb.min[0] < min[0]) min[0] = bb.min[0];
+        if (bb.min[1] < min[1]) min[1] = bb.min[1];
+        if (bb.min[2] < min[2]) min[2] = bb.min[2];
+        if (bb.max[0] > max[0]) max[0] = bb.max[0];
+        if (bb.max[1] > max[1]) max[1] = bb.max[1];
+        if (bb.max[2] > max[2]) max[2] = bb.max[2];
+
+        // Material(s) — Mesh can have an array of materials (multi-material mesh).
+        const mats =
+          (obj.materials as unknown[] | undefined) ?? (obj.material ? [obj.material] : []);
+        for (const m of mats) {
+          if (m) materials.add(m);
+          // Collect texture refs from the material (three.js standard / physical).
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const mAny = m as any;
+          const texProps = [
+            'map',
+            'normalMap',
+            'roughnessMap',
+            'metalnessMap',
+            'aoMap',
+            'emissiveMap',
+            'bumpMap',
+            'displacementMap',
+            'alphaMap',
+            'clearcoatMap',
+            'clearcoatNormalMap',
+            'clearcoatRoughnessMap',
+            'sheenColorMap',
+            'sheenRoughnessMap',
+            'specularIntensityMap',
+            'specularColorMap',
+            'transmissionMap',
+            'thicknessMap',
+            'iridescenceMap',
+            'iridescenceThicknessMap',
+          ];
+          for (const k of texProps) {
+            const t = mAny?.[k];
+            if (t && t.image) {
+              textures.add(t);
+              const img = t.image;
+              if (!seenTextureImages.has(img)) {
+                seenTextureImages.add(img);
+                textureList.push({
+                  name: t.name || k,
+                  width: img.width || 0,
+                  height: img.height || 0,
+                });
+              }
             }
           }
         }
-      }
 
-      if (obj.isSkinnedMesh) {
-        hasSkin = true;
-        if (obj.skeleton?.bones) bones += obj.skeleton.bones.length;
+        if (obj.isSkinnedMesh) {
+          hasSkin = true;
+          if (obj.skeleton?.bones) bones += obj.skeleton.bones.length;
+        }
       }
-    }
-  });
+    },
+  );
 
   // Some skins live on the gltf object even if not under a SkinnedMesh
   // we visited. Add a safety net.

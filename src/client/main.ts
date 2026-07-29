@@ -92,7 +92,13 @@ function updateTaskToast(
 }
 
 const queue = createQueue(queueHost, queueList);
-const fileRows: { id: string; file: File }[] = [];
+interface FileRow {
+  id: string;
+  file: File;
+  /** Reuse the active preview parse instead of parsing large files again. */
+  inspectPromise?: Promise<InspectResult>;
+}
+const fileRows: FileRow[] = [];
 let activeId: string | null = null;
 
 // Dropzone
@@ -135,15 +141,27 @@ async function addFiles(files: File[]) {
   // Kick off inspection in the background — the queue row will
   // update with metadata as soon as it's ready.
   for (const f of files) {
-    inspectOne(f)
-      .then((info) => {
-        const entry = fileRows.find((e) => e.file === f);
-        if (entry) queue.update(entry.id, { inspect: info });
-      })
-      .catch(() => {
-        // Silent — inspect is non-critical
-      });
+    const entry = fileRows.find((candidate) => candidate.file === f);
+    if (entry && !entry.inspectPromise) {
+      trackInspection(entry, f, inspectOne(f));
+    }
   }
+}
+
+function trackInspection(
+  entry: FileRow,
+  file: File,
+  promise: Promise<InspectResult>,
+): Promise<InspectResult> {
+  entry.inspectPromise = promise;
+  promise
+    .then((info) => {
+      if (entry.file === file) queue.update(entry.id, { inspect: info });
+    })
+    .catch(() => {
+      // Inspection is non-critical; optimization will surface parse errors.
+    });
+  return promise;
 }
 
 function resetOutputPreview() {
@@ -166,6 +184,7 @@ function replaceActiveFile(file: File) {
   }
 
   entry.file = file;
+  entry.inspectPromise = undefined;
   queue.update(entry.id, {
     name: file.name,
     size: file.size,
@@ -179,14 +198,7 @@ function replaceActiveFile(file: File) {
   });
   queue.setActive(entry.id);
   resetOutputPreview();
-  previewInput(entry);
-  inspectOne(file)
-    .then((info) => {
-      if (entry.file === file) queue.update(entry.id, { inspect: info });
-    })
-    .catch(() => {
-      // Inspection is non-critical; the replacement remains usable.
-    });
+  focusRow(entry.id);
 }
 
 async function inspectOne(file: File): Promise<InspectResult> {
@@ -200,24 +212,45 @@ function focusRow(id: string) {
   if (!entry) return;
   activeId = id;
   queue.setActive(id);
-  previewInput(entry);
+  const file = entry.file;
+  const previewPromise = previewInput(entry, file);
+  if (!queue.list().find((row) => row.id === entry.id)?.inspect) {
+    trackInspection(entry, file, previewPromise);
+  } else {
+    previewPromise.catch(() => {
+      // The preview callback already reports its own error.
+    });
+  }
 }
 
 // Preview the input GLB/GLTF in the left viewer.
-async function previewInput(entry: { id: string; file: File }) {
-  const buf = await entry.file.arrayBuffer();
-  new GLTFLoader().parse(
-    buf,
-    '',
-    (gltf) => {
-      inputEmpty.hidden = true;
-      inputCanvas.hidden = false;
-      inputViewer.setScene(gltf.scene);
-    },
-    (err) => {
-      toast(`Preview failed: ${err?.message ?? 'unknown error'}`, 'err');
-    },
-  );
+async function previewInput(entry: FileRow, file: File): Promise<InspectResult> {
+  const buf = await file.arrayBuffer();
+  return new Promise((resolve, reject) => {
+    new GLTFLoader().parse(
+      buf,
+      '',
+      async (gltf) => {
+        try {
+          const { inspectScene } = await import('@core');
+          const info = inspectScene(gltf.scene, gltf.animations);
+          if (entry.file === file) {
+            inputEmpty.hidden = true;
+            inputCanvas.hidden = false;
+            inputViewer.setScene(gltf.scene);
+          }
+          resolve(info);
+        } catch (error) {
+          reject(error);
+        }
+      },
+      (err) => {
+        const error = err instanceof Error ? err : new Error(err?.message ?? 'unknown error');
+        toast(`Preview failed: ${error.message}`, 'err');
+        reject(error);
+      },
+    );
+  });
 }
 
 // Preview the converted FBX in the right viewer (via FBX → glb2 round-trip).
@@ -293,22 +326,27 @@ async function previewGlb(glb: Uint8Array, label: string) {
   outputEmpty.hidden = true;
   outputCanvas.hidden = false;
   try {
-    const ab = new ArrayBuffer(glb.byteLength);
-    new Uint8Array(ab).set(glb);
-    new GLTFLoader().parse(
-      ab,
-      '',
-      (g) => {
-        outputViewer.setScene(g.scene);
-        showOutputLabel(label);
-        handleLodsForScene(g.scene);
-      },
-      (err) => {
-        outputEmpty.hidden = false;
-        outputCanvas.hidden = true;
-        toast(`Preview failed: ${err?.message ?? 'unknown error'}`, 'err');
-      },
-    );
+    // GLTFExporter returns an exact Uint8Array over a plain ArrayBuffer. Reuse
+    // it instead of copying another complete scan-sized GLB at peak memory.
+    const ab =
+      glb.buffer instanceof ArrayBuffer &&
+      glb.byteOffset === 0 &&
+      glb.byteLength === glb.buffer.byteLength
+        ? glb.buffer
+        : glb.slice().buffer;
+    await new Promise<void>((resolve, reject) => {
+      new GLTFLoader().parse(
+        ab,
+        '',
+        (g) => {
+          outputViewer.setScene(g.scene);
+          showOutputLabel(label);
+          handleLodsForScene(g.scene);
+          resolve();
+        },
+        (err) => reject(err instanceof Error ? err : new Error(err?.message ?? 'unknown error')),
+      );
+    });
   } catch (err) {
     outputEmpty.hidden = false;
     outputCanvas.hidden = true;
@@ -579,6 +617,11 @@ async function previewOptimization() {
     toast('No file selected.', 'warn');
     return;
   }
+  // Release the previous optimized scene before allocating another parsed
+  // source, LOD set, texture-bake canvases, and output GLB. Keeping the old
+  // preview resident made the second run substantially more memory-intensive
+  // than the first and could crash the browser even on small assets.
+  resetOutputPreview();
   previewOptBtn.disabled = true;
   const task = progressToast(`Preview optimization · ${target.file.name}`);
   try {
@@ -590,7 +633,14 @@ async function previewOptimization() {
     updateTaskToast(task, 'parse', 0.05, 'Reading source…');
     const buf = await target.file.arrayBuffer();
     updateTaskToast(task, 'inspect', 0, 'Inspecting source…');
-    const before = await inspectGltf(buf);
+    // File rows are inspected when they enter the queue. Reuse that result so
+    // previewing does not parse and decode the same source a second time right
+    // before the optimization parser needs its own copy.
+    let before = queue.list().find((row) => row.id === target.id)?.inspect;
+    if (!before) {
+      before = await (target.inspectPromise ??
+        trackInspection(target, target.file, inspectGltf(buf)));
+    }
     updateTaskToast(task, 'inspect', 0.12, 'Source inspected');
     const result = await optimizeGltf(buf, opts);
     updateTaskToast(task, 'export', 0.9, 'Loading optimized preview…');

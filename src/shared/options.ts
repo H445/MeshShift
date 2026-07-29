@@ -69,6 +69,15 @@ export const DEFAULT_OPTIONS: Required<Omit<ConvertOptions, 'onProgress' | 'targ
 export const DEFAULT_LOD_TRIANGLE_RATIOS = [0.5, 0.3, 0.2, 0.12] as const;
 
 /**
+ * Keep the deepest automatic LOD useful for both small props and very dense
+ * scans.  A ratio-only target plateaus on UV-seamed meshes long before it
+ * reaches a genuinely low-poly representation (a 1.8M-triangle scan would
+ * otherwise still target roughly 226K triangles at LOD4).  Explicit profile
+ * targets continue to take precedence over this cap.
+ */
+export const DEFAULT_DEEPEST_LOD_TRIANGLE_CAP = 450;
+
+/**
  * Engine-specific preset defaults. Applied when targetEngine is set and
  * the user hasn't explicitly overridden the field. We treat undefined /
  * equal-to-default as "not set".

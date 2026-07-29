@@ -2,7 +2,14 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { NodeIO } from '@gltf-transform/core';
-import { BufferAttribute, BufferGeometry, IcosahedronGeometry, SphereGeometry } from 'three';
+import {
+  BufferAttribute,
+  BufferGeometry,
+  IcosahedronGeometry,
+  InterleavedBuffer,
+  InterleavedBufferAttribute,
+  SphereGeometry,
+} from 'three';
 import {
   edgeCollapseDecimate,
   generateLodGeometries,
@@ -93,6 +100,44 @@ describe('topology-safe LOD decimation', () => {
     expect(levels.map((level) => level.level)).toEqual([1, 2, 3, 4]);
     expect(levels.every((level) => level.triangleCount <= sourceTriangles)).toBe(true);
     expect(levels.some((level) => level.safePlateau)).toBe(true);
+  });
+
+  it('preserves interleaved position, normal, and UV attributes in compact LODs', async () => {
+    const regular = new SphereGeometry(1, 16, 8);
+    const position = regular.attributes.position;
+    const normal = regular.attributes.normal;
+    const uv = regular.attributes.uv;
+    const values = new Float32Array(position.count * 8);
+    for (let vertex = 0; vertex < position.count; vertex++) {
+      const offset = vertex * 8;
+      values[offset] = position.getX(vertex);
+      values[offset + 1] = position.getY(vertex);
+      values[offset + 2] = position.getZ(vertex);
+      values[offset + 3] = normal.getX(vertex);
+      values[offset + 4] = normal.getY(vertex);
+      values[offset + 5] = normal.getZ(vertex);
+      values[offset + 6] = uv.getX(vertex);
+      values[offset + 7] = uv.getY(vertex);
+    }
+
+    const interleaved = new InterleavedBuffer(values, 8);
+    const source = new BufferGeometry();
+    source.setAttribute('position', new InterleavedBufferAttribute(interleaved, 3, 0));
+    source.setAttribute('normal', new InterleavedBufferAttribute(interleaved, 3, 3));
+    source.setAttribute('uv', new InterleavedBufferAttribute(interleaved, 2, 6));
+    source.setIndex(regular.index!.clone());
+
+    const levels = await generateLodGeometries(source, 2, [100, 50]);
+    expect(levels).toHaveLength(2);
+    for (const level of levels) {
+      expect(level.geometry.attributes.position).toBeDefined();
+      expect(level.geometry.attributes.normal).toBeDefined();
+      expect(level.geometry.attributes.uv).toBeDefined();
+      expect(level.geometry.attributes.position.count).toBeGreaterThan(0);
+      expect(level.geometry.attributes.normal.count).toBe(level.geometry.attributes.position.count);
+      expect(level.geometry.attributes.uv.count).toBe(level.geometry.attributes.position.count);
+      expect('data' in level.geometry.attributes.position).toBe(false);
+    }
   });
 
   it('reduces a low-poly closed mesh all the way to a four-triangle target', () => {

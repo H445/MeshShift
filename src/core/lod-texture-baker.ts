@@ -10,9 +10,11 @@ import {
   Source,
   Texture,
   Triangle,
+  type InterleavedBufferAttribute,
+  type TypedArray,
   Vector3,
 } from 'three';
-import { MeshBVH, type HitPointInfo } from 'three-mesh-bvh';
+import { CENTER, MeshBVH, type HitPointInfo } from 'three-mesh-bvh';
 import * as watlas from 'watlas';
 
 const TEXTURE_SLOTS = [
@@ -41,6 +43,15 @@ const TEXTURE_SLOTS = [
 const INVALID_FACE = 0xffffffff;
 const ATLAS_PADDING = 8;
 let watlasReady: Promise<void> | null = null;
+
+type VertexAttribute = BufferAttribute | InterleavedBufferAttribute;
+type TypedArrayConstructor = new (length: number) => TypedArray;
+
+function createAttributeArray(attribute: VertexAttribute, length: number): TypedArray {
+  const sourceArray = 'data' in attribute ? attribute.data.array : attribute.array;
+  const ArrayConstructor = sourceArray.constructor as TypedArrayConstructor;
+  return new ArrayConstructor(length);
+}
 
 interface SourceTexturePixels {
   data: Uint8ClampedArray;
@@ -77,6 +88,21 @@ export interface LodTextureBaker {
     lodTriangles: number,
     sourceTriangles: number,
   ): Promise<BakedLod | null>;
+  /** Release the retained projection BVH and decoded source pixels. */
+  dispose?(): void;
+}
+
+export interface LodTextureBakerOptions {
+  /**
+   * Build the projection BVH over the supplied source without cloning its
+   * million-vertex position/index streams. The caller must keep the geometry
+   * alive until the baker is disposed.
+   */
+  directProjectionSource?: boolean;
+  /** Keep enough atlas texels for small, high-contrast scan details. */
+  highDetailAtlases?: boolean;
+  /** Fill chart padding only; never smear samples across unrelated charts. */
+  paddingOnly?: boolean;
 }
 
 /**
@@ -171,16 +197,15 @@ export async function unwrapLodGeometry(
 
     const geometry = new BufferGeometry();
     for (const [name, attribute] of Object.entries(preparedSource.attributes)) {
-      if (name === 'uv' || attribute.count !== position.count || 'data' in attribute) continue;
-      const ArrayConstructor = attribute.array.constructor as new (
-        length: number,
-      ) => typeof attribute.array;
-      const values = new ArrayConstructor(atlasMesh.vertexCount * attribute.itemSize);
+      if (name === 'uv' || attribute.count !== position.count) continue;
+      const values = createAttributeArray(attribute, atlasMesh.vertexCount * attribute.itemSize);
       for (let i = 0; i < atlasMesh.vertexCount; i++) {
         const sourceVertex = xrefs[i];
         for (let component = 0; component < attribute.itemSize; component++) {
-          values[i * attribute.itemSize + component] =
-            attribute.array[sourceVertex * attribute.itemSize + component];
+          values[i * attribute.itemSize + component] = attribute.getComponent(
+            sourceVertex,
+            component,
+          );
         }
       }
       geometry.setAttribute(
@@ -211,6 +236,7 @@ export async function createLodTextureBaker(
   sourceGeometry: BufferGeometry,
   sourceMaterial: Material | Material[],
   maxTextureSize: number,
+  options: LodTextureBakerOptions = {},
 ): Promise<LodTextureBaker | null> {
   if (
     typeof document === 'undefined' ||
@@ -224,17 +250,53 @@ export async function createLodTextureBaker(
 
   const materialRecord = sourceMaterial as unknown as Record<string, unknown>;
   const textures = new Map<Texture, SourceTexturePixels>();
-  for (const slot of TEXTURE_SLOTS) {
-    const value = materialRecord[slot];
-    if (!(value instanceof Texture) || textures.has(value)) continue;
-    const pixels = readTexturePixels(value);
-    if (!pixels) return null;
-    textures.set(value, pixels);
+  let ownsProjectionGeometry = true;
+  let projectionGeometry: BufferGeometry;
+  let bvh: MeshBVH;
+  if (options.directProjectionSource) {
+    // A scan-sized source already owns the exact position, index, and UV
+    // streams needed for projection. Borrow them and retain only a compact
+    // indirect BVH; cloning those streams here was enough to exceed a
+    // constrained browser tab's memory budget.
+    projectionGeometry = sourceGeometry;
+    ownsProjectionGeometry = false;
+    projectionGeometry.computeBoundingBox();
+    projectionGeometry.computeBoundingSphere();
+    bvh = new MeshBVH(projectionGeometry, {
+      indirect: true,
+      strategy: CENTER,
+      targetLeafSize: 64,
+      verbose: false,
+    });
+    // Give the browser a paint/collection point between the BVH's transient
+    // build buffers and the decoded high-resolution source textures.
+    await yieldToBrowser();
+  } else {
+    // Preserve the established small-asset path byte-for-byte: decode the
+    // textures first, then project from a tightly packed private geometry.
+    for (const slot of TEXTURE_SLOTS) {
+      const value = materialRecord[slot];
+      if (!(value instanceof Texture) || textures.has(value)) continue;
+      const pixels = readTexturePixels(value);
+      if (!pixels) return null;
+      textures.set(value, pixels);
+    }
+    if (textures.size === 0) return null;
+    projectionGeometry = createProjectionGeometry(sourceGeometry);
+    bvh = new MeshBVH(projectionGeometry, { indirect: true });
   }
-  if (textures.size === 0) return null;
 
-  const projectionGeometry = createProjectionGeometry(sourceGeometry);
-  const bvh = new MeshBVH(projectionGeometry, { indirect: true });
+  if (options.directProjectionSource) {
+    for (const slot of TEXTURE_SLOTS) {
+      const value = materialRecord[slot];
+      if (!(value instanceof Texture) || textures.has(value)) continue;
+      const pixels = readTexturePixels(value);
+      if (!pixels) return null;
+      textures.set(value, pixels);
+    }
+    if (textures.size === 0) return null;
+  }
+
   const sourceBounds = projectionGeometry.boundingBox;
   const projectionDistance = sourceBounds
     ? sourceBounds.getSize(new Vector3()).length()
@@ -246,6 +308,7 @@ export async function createLodTextureBaker(
         maxTextureSize,
         lodTriangles,
         sourceTriangles,
+        options.highDetailAtlases === true,
       );
       const unwrapped = await unwrapLodGeometry(simplifiedGeometry, requestedResolution);
       if (!unwrapped) return null;
@@ -258,8 +321,19 @@ export async function createLodTextureBaker(
           unwrapped.width,
           unwrapped.height,
           projectionDistance,
+          {
+            paddingOnly: options.paddingOnly === true,
+            yieldEveryPixels: options.directProjectionSource ? 4096 : 0,
+          },
         );
         if (!projection) {
+          unwrapped.geometry.dispose();
+          return null;
+        }
+        if (
+          !options.directProjectionSource &&
+          !hasProjectionCoverage(projection.faces, lodTriangles, projectionGeometry)
+        ) {
           unwrapped.geometry.dispose();
           return null;
         }
@@ -292,15 +366,105 @@ export async function createLodTextureBaker(
         return null;
       }
     },
+    dispose() {
+      textures.clear();
+      if (ownsProjectionGeometry) projectionGeometry.dispose();
+    },
   };
+}
+
+/** Reject an atlas whose reprojection collapsed to one tiny source patch. */
+function hasProjectionCoverage(
+  faces: Uint32Array,
+  lodTriangles: number,
+  sourceGeometry: BufferGeometry,
+): boolean {
+  const uniqueFaces = new Set<number>();
+  for (const face of faces) {
+    if (face !== INVALID_FACE) uniqueFaces.add(face);
+  }
+  // A valid reprojection should touch a meaningful portion of the source
+  // surface. A handful of hits can technically pass a binary "has pixels"
+  // test while still painting an entire atlas from one small patch — the
+  // single-sliver result. Require roughly half as many distinct source
+  // faces as the active LOD has triangles (bounded for very dense levels).
+  const minimumFaces = Math.min(128, Math.max(8, Math.floor(lodTriangles / 2)));
+  if (uniqueFaces.size < minimumFaces) return false;
+
+  // Also reject a numerically large set of faces that all came from one
+  // little patch. This catches sparse scan proxies where atlas dilation can
+  // otherwise make a local patch look fully covered.
+  const sourceIndex = sourceGeometry.index;
+  const position = sourceGeometry.attributes.position;
+  if (!sourceIndex || !position) return false;
+  let sourceMinX = Infinity,
+    sourceMaxX = -Infinity,
+    sourceMinY = Infinity,
+    sourceMaxY = -Infinity,
+    sourceMinZ = Infinity,
+    sourceMaxZ = -Infinity;
+  for (let vertex = 0; vertex < position.count; vertex++) {
+    const x = position.getX(vertex);
+    const y = position.getY(vertex);
+    const z = position.getZ(vertex);
+    sourceMinX = Math.min(sourceMinX, x);
+    sourceMaxX = Math.max(sourceMaxX, x);
+    sourceMinY = Math.min(sourceMinY, y);
+    sourceMaxY = Math.max(sourceMaxY, y);
+    sourceMinZ = Math.min(sourceMinZ, z);
+    sourceMaxZ = Math.max(sourceMaxZ, z);
+  }
+  let hitMinX = Infinity,
+    hitMaxX = -Infinity,
+    hitMinY = Infinity,
+    hitMaxY = -Infinity,
+    hitMinZ = Infinity,
+    hitMaxZ = -Infinity;
+  for (const face of uniqueFaces) {
+    const offset = face * 3;
+    if (offset < 0 || offset + 2 >= sourceIndex.count) continue;
+    for (const vertex of [
+      sourceIndex.getX(offset),
+      sourceIndex.getX(offset + 1),
+      sourceIndex.getX(offset + 2),
+    ]) {
+      hitMinX = Math.min(hitMinX, position.getX(vertex));
+      hitMaxX = Math.max(hitMaxX, position.getX(vertex));
+      hitMinY = Math.min(hitMinY, position.getY(vertex));
+      hitMaxY = Math.max(hitMaxY, position.getY(vertex));
+      hitMinZ = Math.min(hitMinZ, position.getZ(vertex));
+      hitMaxZ = Math.max(hitMaxZ, position.getZ(vertex));
+    }
+  }
+  const ratios = [
+    (hitMaxX - hitMinX) / Math.max(1e-8, sourceMaxX - sourceMinX),
+    (hitMaxY - hitMinY) / Math.max(1e-8, sourceMaxY - sourceMinY),
+    (hitMaxZ - hitMinZ) / Math.max(1e-8, sourceMaxZ - sourceMinZ),
+  ];
+  const activeAxes = [
+    sourceMaxX - sourceMinX,
+    sourceMaxY - sourceMinY,
+    sourceMaxZ - sourceMinZ,
+  ].filter((span) => span > 1e-8).length;
+  const broadAxes = ratios.filter((ratio) => ratio >= 0.2).length;
+  return broadAxes >= Math.min(2, activeAxes);
 }
 
 function chooseBakeResolution(
   maxTextureSize: number,
   lodTriangles: number,
   sourceTriangles: number,
+  highDetailAtlas = false,
 ): number {
   const maximum = Math.max(64, Math.min(4096, maxTextureSize));
+  if (highDetailAtlas) {
+    // Source-relative density reduces a 1.8M-triangle scan to 256px even when
+    // its low-poly surface still needs crisp, high-contrast markings. Size the
+    // large-source atlas from the final topology instead: ~128 texels per
+    // triangle gives a 3k-triangle LOD 1024px and deeper levels 512px.
+    const ideal = 2 ** Math.ceil(Math.log2(Math.sqrt(Math.max(1, lodTriangles) * 128)));
+    return Math.min(maximum, Math.max(512, ideal));
+  }
   const texelDensityScale = Math.sqrt(Math.max(0.001, lodTriangles / sourceTriangles));
   const ideal = Math.max(256, maximum * texelDensityScale);
   return Math.min(maximum, 2 ** Math.floor(Math.log2(ideal)));
@@ -356,11 +520,17 @@ function readTexturePixels(texture: Texture): SourceTexturePixels | null {
     const context = canvas.getContext('2d', { willReadFrequently: true });
     if (!context) return null;
     context.drawImage(image, 0, 0, width, height);
+    const data = context.getImageData(0, 0, width, height).data;
+    // The ImageData is the retained source. Release the temporary 2D backing
+    // store immediately; two 2048² source textures otherwise leave another
+    // ~32 MB of canvas memory live through all four LOD bakes.
+    canvas.width = 0;
+    canvas.height = 0;
     return {
       texture,
       width,
       height,
-      data: context.getImageData(0, 0, width, height).data,
+      data,
     };
   } catch {
     return null;
@@ -374,6 +544,7 @@ async function buildProjectionMap(
   width: number,
   height: number,
   maxDistance: number,
+  options: { paddingOnly?: boolean; yieldEveryPixels?: number } = {},
 ): Promise<ProjectionMap | null> {
   const lodIndex = lodGeometry.index;
   const lodPosition = lodGeometry.attributes.position;
@@ -405,6 +576,8 @@ async function buildProjectionMap(
   const sourceB = new Vector3();
   const sourceC = new Vector3();
   const sourceBarycentric = new Vector3();
+  const yieldEveryPixels = Math.max(0, options.yieldEveryPixels ?? 0);
+  let pixelsSinceYield = 0;
 
   for (let triangle = 0; triangle < lodIndex.count / 3; triangle++) {
     const ia = lodIndex.getX(triangle * 3);
@@ -432,6 +605,10 @@ async function buildProjectionMap(
 
     for (let y = minY; y <= maxY; y++) {
       for (let x = minX; x <= maxX; x++) {
+        if (yieldEveryPixels > 0 && ++pixelsSinceYield >= yieldEveryPixels) {
+          pixelsSinceYield = 0;
+          await yieldToBrowser();
+        }
         const px = x + 0.5;
         const py = y + 0.5;
         const wa = ((by - cy) * (px - cx) + (cx - bx) * (py - cy)) / denominator;
@@ -512,10 +689,12 @@ async function buildProjectionMap(
   // few bounded passes so every atlas sample gets a nearby source mapping;
   // this only fills unused atlas gaps and never changes the mesh UVs.
   dilateProjectionMap(faces, barycentricA, barycentricB, width, height, ATLAS_PADDING);
-  const dilationRadii = [16, 64, 255];
-  for (const radius of dilationRadii) {
-    if (!faces.some((face) => face === INVALID_FACE)) break;
-    dilateProjectionMap(faces, barycentricA, barycentricB, width, height, radius);
+  if (!options.paddingOnly) {
+    const dilationRadii = [16, 64, 255];
+    for (const radius of dilationRadii) {
+      if (!faces.some((face) => face === INVALID_FACE)) break;
+      dilateProjectionMap(faces, barycentricA, barycentricB, width, height, radius);
+    }
   }
   return { faces, barycentricA, barycentricB, width, height };
 }

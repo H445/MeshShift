@@ -321,7 +321,18 @@ function disposeObject(obj: THREE.Object3D): void {
     const mesh = child as THREE.Mesh;
     if (mesh.geometry) mesh.geometry.dispose();
     const mat = mesh.material as THREE.Material | THREE.Material[] | undefined;
-    if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
-    else if (mat) mat.dispose();
+    const materials = Array.isArray(mat) ? mat : mat ? [mat] : [];
+    for (const material of materials) {
+      // A viewer can replace the output scene many times during LOD audits.
+      // Disposing only materials leaves their decoded atlas textures and GPU
+      // allocations behind, eventually crashing the tab after a few previews.
+      const record = material as unknown as Record<string, unknown>;
+      for (const value of Object.values(record)) {
+        if (value && typeof value === 'object' && 'isTexture' in value) {
+          (value as THREE.Texture).dispose();
+        }
+      }
+      material.dispose();
+    }
   });
 }
