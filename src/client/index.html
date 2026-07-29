@@ -58,35 +58,14 @@
           <header class="pane-header">
             <h2>Input</h2>
             <span class="pane-sub">GLB / GLTF preview</span>
-            <button
-              class="icon-btn wireframe-btn"
-              id="wireframe-input-btn"
-              title="Toggle wireframe"
-              aria-label="Toggle wireframe"
-              aria-pressed="false"
-            >
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linejoin="round"
-                stroke-linecap="round"
-              >
-                <path d="M3 5l9 -3l9 3l0 14l-9 3l-9 -3z" />
-                <path d="M3 5l9 3l9 -3" />
-                <path d="M3 12l9 3l9 -3" />
-                <path d="M3 19l9 -3l9 3" />
-                <path d="M12 8l0 13" />
-                <path d="M3 5l0 14" />
-                <path d="M21 5l0 14" />
-              </svg>
-            </button>
           </header>
           <div class="viewer-host" id="viewer-input">
-            <div class="axis-lock" id="axis-lock-input" role="group" aria-label="Input axis view">
+            <div
+              class="axis-lock"
+              id="axis-lock-input"
+              role="group"
+              aria-label="Input view controls"
+            >
               <span class="axis-lock-label">View</span>
               <button
                 type="button"
@@ -132,6 +111,33 @@
                 title="Lock to Z axis (front view)"
               >
                 Z
+              </button>
+              <span class="axis-lock-separator" aria-hidden="true"></span>
+              <button
+                class="icon-btn wireframe-btn"
+                id="wireframe-input-btn"
+                title="Toggle wireframe"
+                aria-label="Toggle wireframe"
+                aria-pressed="false"
+              >
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linejoin="round"
+                  stroke-linecap="round"
+                >
+                  <path d="M3 5l9 -3l9 3l0 14l-9 3l-9 -3z" />
+                  <path d="M3 5l9 3l9 -3" />
+                  <path d="M3 12l9 3l9 -3" />
+                  <path d="M3 19l9 -3l9 3" />
+                  <path d="M12 8l0 13" />
+                  <path d="M3 5l0 14" />
+                  <path d="M21 5l0 14" />
+                </svg>
               </button>
             </div>
             <div class="viewer-empty">
@@ -168,35 +174,14 @@
               <span class="lod-selector-label">LOD</span>
               <div class="lod-slider-host" id="lod-slider-host"></div>
             </div>
-            <button
-              class="icon-btn wireframe-btn"
-              id="wireframe-output-btn"
-              title="Toggle wireframe"
-              aria-label="Toggle wireframe"
-              aria-pressed="false"
-            >
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linejoin="round"
-                stroke-linecap="round"
-              >
-                <path d="M3 5l9 -3l9 3l0 14l-9 3l-9 -3z" />
-                <path d="M3 5l9 3l9 -3" />
-                <path d="M3 12l9 3l9 -3" />
-                <path d="M3 19l9 -3l9 3" />
-                <path d="M12 8l0 13" />
-                <path d="M3 5l0 14" />
-                <path d="M21 5l0 14" />
-              </svg>
-            </button>
           </header>
           <div class="viewer-host" id="viewer-output">
-            <div class="axis-lock" id="axis-lock-output" role="group" aria-label="Output axis view">
+            <div
+              class="axis-lock"
+              id="axis-lock-output"
+              role="group"
+              aria-label="Output view controls"
+            >
               <span class="axis-lock-label">View</span>
               <button
                 type="button"
@@ -242,6 +227,33 @@
                 title="Lock to Z axis (front view)"
               >
                 Z
+              </button>
+              <span class="axis-lock-separator" aria-hidden="true"></span>
+              <button
+                class="icon-btn wireframe-btn"
+                id="wireframe-output-btn"
+                title="Toggle wireframe"
+                aria-label="Toggle wireframe"
+                aria-pressed="false"
+              >
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linejoin="round"
+                  stroke-linecap="round"
+                >
+                  <path d="M3 5l9 -3l9 3l0 14l-9 3l-9 -3z" />
+                  <path d="M3 5l9 3l9 -3" />
+                  <path d="M3 12l9 3l9 -3" />
+                  <path d="M3 19l9 -3l9 3" />
+                  <path d="M12 8l0 13" />
+                  <path d="M3 5l0 14" />
+                  <path d="M21 5l0 14" />
+                </svg>
               </button>
             </div>
             <div class="viewer-empty">

@@ -128,27 +128,22 @@ body {
   background: #5cb6ff;
   border-color: #5cb6ff;
 }
-.wireframe-btn {
-  margin-left: auto;
-}
 .axis-lock {
   position: absolute;
-  top: 12px;
-  right: 12px;
+  top: 4px;
+  right: 4px;
   z-index: 3;
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  padding: 2px 3px 2px 6px;
+  gap: 1px;
+  padding: 2px;
   border: 1px solid var(--border);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--bg-1) 90%, transparent);
-}
-#pane-output .axis-lock {
-  margin-left: 0;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--bg-1) 94%, transparent);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.24);
 }
 .axis-lock-label {
-  padding: 0 3px 0 0;
+  padding: 0 3px;
   color: var(--fg-2);
   font-size: 10px;
   font-weight: 700;
@@ -156,11 +151,11 @@ body {
   text-transform: uppercase;
 }
 .axis-btn {
-  min-width: 28px;
-  height: 24px;
-  padding: 0 6px;
+  min-width: 23px;
+  height: 22px;
+  padding: 0 4px;
   border: 1px solid transparent;
-  border-radius: 999px;
+  border-radius: 3px;
   background: transparent;
   color: var(--fg-1);
   cursor: pointer;
@@ -194,6 +189,23 @@ body {
 .axis-btn[aria-pressed='true'].axis-y,
 .axis-btn[aria-pressed='true'].axis-z {
   color: #06121f;
+}
+.axis-lock-separator {
+  width: 1px;
+  height: 14px;
+  margin: 0 2px;
+  background: var(--border-strong);
+}
+.axis-lock .wireframe-btn {
+  flex: 0 0 24px;
+  width: 24px;
+  height: 22px;
+  margin: 0;
+  border-radius: 3px;
+}
+.axis-lock .wireframe-btn svg {
+  width: 14px;
+  height: 14px;
 }
 
 /* Layout */
