@@ -41,7 +41,10 @@ export interface ViewerHandle {
   setAutoRotate(enabled: boolean): void;
   /** Returns whether idle auto-rotation is enabled. */
   isAutoRotate(): boolean;
-  /** Enable click-to-pin interaction and pause orbit controls while editing. */
+  /**
+   * Enable click-to-pin interaction. Model clicks place pins while empty-space
+   * drags and wheel gestures remain available for orbiting and zooming.
+   */
   setDetailPinEditMode(enabled: boolean): void;
   isDetailPinEditMode(): boolean;
   /** Render persistent pin markers over the solid or wireframe model. */
@@ -194,30 +197,16 @@ export function createViewer(canvas: HTMLCanvasElement): ViewerHandle {
     autoRotate = false;
     lastUserInteraction = performance.now();
   }
-  function handlePointerDown(event: PointerEvent) {
-    if (detailPinEditMode) {
-      pinPointerStart = { x: event.clientX, y: event.clientY };
-      return;
-    }
-    // A lock is an audit pose, not a drag trap. The first orbit gesture
-    // immediately returns this viewer to free rotation.
-    if (axisLock !== null) setAxisLock(null);
-    notifyUser();
-  }
-  function handlePointerUp(event: PointerEvent): void {
-    if (!detailPinEditMode || !pinPointerStart) return;
-    const moved = Math.hypot(event.clientX - pinPointerStart.x, event.clientY - pinPointerStart.y);
-    pinPointerStart = null;
-    if (moved > 5) return;
 
+  function detailPinIntersection(clientX: number, clientY: number): THREE.Intersection | undefined {
     const rect = canvas.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0) return;
+    if (rect.width <= 0 || rect.height <= 0) return undefined;
     pinPointer.set(
-      ((event.clientX - rect.left) / rect.width) * 2 - 1,
-      -((event.clientY - rect.top) / rect.height) * 2 + 1,
+      ((clientX - rect.left) / rect.width) * 2 - 1,
+      -((clientY - rect.top) / rect.height) * 2 + 1,
     );
     pinRaycaster.setFromCamera(pinPointer, camera);
-    const hit = pinRaycaster
+    return pinRaycaster
       .intersectObjects(root.children, true)
       .find(
         (intersection) =>
@@ -226,6 +215,32 @@ export function createViewer(canvas: HTMLCanvasElement): ViewerHandle {
           !intersection.object.userData.__detailPinMarker &&
           typeof intersection.object.userData.modelShiftMeshKey === 'string',
       );
+  }
+
+  function handlePointerDown(event: PointerEvent) {
+    if (detailPinEditMode) {
+      const hit = detailPinIntersection(event.clientX, event.clientY);
+      pinPointerStart = hit ? { x: event.clientX, y: event.clientY } : null;
+      // A model-surface gesture belongs to the pin editor. Empty-space drags
+      // continue through to OrbitControls when the view is in Free mode.
+      controls.enableRotate = !hit && axisLock === null;
+      return;
+    }
+    // A lock is an audit pose, not a drag trap. The first orbit gesture
+    // immediately returns this viewer to free rotation.
+    if (axisLock !== null) setAxisLock(null);
+    notifyUser();
+  }
+  function handlePointerUp(event: PointerEvent): void {
+    if (!detailPinEditMode) return;
+    const pointerStart = pinPointerStart;
+    pinPointerStart = null;
+    controls.enableRotate = axisLock === null;
+    if (!pointerStart) return;
+    const moved = Math.hypot(event.clientX - pointerStart.x, event.clientY - pointerStart.y);
+    if (moved > 5) return;
+
+    const hit = detailPinIntersection(event.clientX, event.clientY);
     const mesh = hit?.object as THREE.Mesh | undefined;
     const face = hit?.face;
     const position = mesh?.geometry?.attributes.position;
@@ -258,9 +273,14 @@ export function createViewer(canvas: HTMLCanvasElement): ViewerHandle {
     };
     for (const listener of detailPointListeners) listener(pick);
   }
+  function handlePointerCancel(): void {
+    pinPointerStart = null;
+    controls.enableRotate = axisLock === null;
+  }
   controls.addEventListener('start', notifyUser);
   canvas.addEventListener('pointerdown', handlePointerDown, { capture: true });
   canvas.addEventListener('pointerup', handlePointerUp, { capture: true });
+  canvas.addEventListener('pointercancel', handlePointerCancel, { capture: true });
   canvas.addEventListener('wheel', notifyUser, { passive: true });
   canvas.addEventListener('touchstart', notifyUser, { passive: true });
   const idleTimer = window.setInterval(() => {
@@ -443,7 +463,8 @@ export function createViewer(canvas: HTMLCanvasElement): ViewerHandle {
     setDetailPinEditMode(enabled: boolean) {
       detailPinEditMode = enabled;
       pinPointerStart = null;
-      controls.enabled = !enabled;
+      controls.enabled = true;
+      controls.enableRotate = axisLock === null;
       canvas.classList.toggle('detail-pin-editing', enabled);
       if (enabled) {
         autoRotate = false;
@@ -480,6 +501,7 @@ export function createViewer(canvas: HTMLCanvasElement): ViewerHandle {
       controls.removeEventListener('start', notifyUser);
       canvas.removeEventListener('pointerdown', handlePointerDown, true);
       canvas.removeEventListener('pointerup', handlePointerUp, true);
+      canvas.removeEventListener('pointercancel', handlePointerCancel, true);
       canvas.removeEventListener('wheel', notifyUser);
       canvas.removeEventListener('touchstart', notifyUser);
       disposeObject(root);
