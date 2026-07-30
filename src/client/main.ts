@@ -639,7 +639,7 @@ async function previewGlb(
   }
 }
 
-// Stats diff — renders the before/after panel in the OUTPUT pane.
+// Stats diff — renders the compact before/after panel below both viewers.
 function renderStats(before: InspectResult, after: InspectResult, changes: OptimizeChange[]) {
   statsGrid.innerHTML = '';
   const rows: {

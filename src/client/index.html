@@ -309,15 +309,21 @@
             </div>
             <canvas id="canvas-output" hidden></canvas>
           </div>
-          <div class="stats-panel" id="stats-panel" hidden>
-            <div class="stats-title">Optimization</div>
+        </section>
+
+        <details class="stats-panel" id="stats-panel" open hidden>
+          <summary class="stats-summary">
+            <span class="stats-title">Optimization</span>
+            <span class="stats-summary-hint">Before → after</span>
+          </summary>
+          <div class="stats-body">
             <div class="stats-grid" id="stats-grid"></div>
             <details class="stats-changes" id="stats-changes-wrap" hidden>
               <summary>Changes</summary>
               <ul id="stats-changes"></ul>
             </details>
           </div>
-        </section>
+        </details>
       </main>
 
       <section class="queue-host" id="queue-host" hidden>
