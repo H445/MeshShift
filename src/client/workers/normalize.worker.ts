@@ -134,6 +134,8 @@ async function processRequest(message: ModelWorkerRequest): Promise<void> {
         ...message.stats,
         meshes: selection.meshes,
         materials: selection.materials,
+        textures: selection.textures,
+        textureMaxSize: selection.textureMaxSize,
         triangles: selection.triangles,
         vertices: selection.vertices,
       };

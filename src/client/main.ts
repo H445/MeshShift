@@ -21,6 +21,11 @@ import {
 import { optimizationOptionsKey, usesOptimization } from './lib/optimization-cache.js';
 import { lodLevelsThrough, reconcileLodLevels, sameLodLevels } from './lib/lod-selection.js';
 import { detectLods, selectLod, renderLodSelector, hideLodSelector } from './ui/lod.js';
+import {
+  inspectGlbLodCatalog,
+  summarizeGlbLodSelection,
+  type GlbLodCatalog,
+} from '../core/lodSelection.js';
 import type { AssetFile, ConvertPhase, ConvertResult, InspectResult } from '../shared/options.js';
 import type { OptimizeChange, OptimizeResult } from '../core/optimize.js';
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
@@ -54,6 +59,8 @@ const clearBtn = document.getElementById('clear-btn') as HTMLButtonElement;
 const saveAllBtn = document.getElementById('save-all-btn') as HTMLButtonElement;
 const masterCheck = document.getElementById('master-check') as HTMLInputElement | null;
 const statsPanel = document.getElementById('stats-panel') as HTMLDetailsElement;
+const statsSummaryHint = document.getElementById('stats-summary-hint') as HTMLElement;
+const statsLods = document.getElementById('stats-lods') as HTMLElement;
 const statsGrid = document.getElementById('stats-grid') as HTMLElement;
 const statsChangesWrap = document.getElementById('stats-changes-wrap') as HTMLElement;
 const statsChanges = document.getElementById('stats-changes') as HTMLElement;
@@ -61,12 +68,8 @@ const previewLayout = document.getElementById('preview-layout') as HTMLElement;
 const mobilePaneTabs = Array.from(
   document.querySelectorAll<HTMLButtonElement>('[data-mobile-pane-target]'),
 );
-const queueMobileToggle = document.getElementById(
-  'queue-mobile-toggle',
-) as HTMLButtonElement;
-const queueMobileToggleLabel = document.getElementById(
-  'queue-mobile-toggle-label',
-) as HTMLElement;
+const queueMobileToggle = document.getElementById('queue-mobile-toggle') as HTMLButtonElement;
+const queueMobileToggleLabel = document.getElementById('queue-mobile-toggle-label') as HTMLElement;
 const lodSelector = document.getElementById('lod-selector') as HTMLElement;
 const lodSliderHost = document.getElementById('lod-slider-host') as HTMLElement;
 const wireframeInputBtn = document.getElementById('wireframe-input-btn') as HTMLButtonElement;
@@ -172,6 +175,12 @@ interface FileRow {
     key: string;
     result: OptimizeResult;
   };
+  optimizationReport?: {
+    key: string;
+    before: InspectResult;
+    result: OptimizeResult;
+    lodCatalog: GlbLodCatalog;
+  };
   /** Highest LOD discovered in the source before generated profile levels are added. */
   sourceMaxLod: number;
 }
@@ -208,7 +217,10 @@ function syncAllFileLodLevels(generatedLods: number): void {
   syncSaveAllVisibility();
 }
 
-profiles.onChange((options) => syncAllFileLodLevels(options.generateLODs ?? 0));
+profiles.onChange((options) => {
+  syncAllFileLodLevels(options.generateLODs ?? 0);
+  renderActiveOptimizationReport();
+});
 
 // Dropzone
 createDropzone(document.body).onFiles((files) => addFiles(files));
@@ -377,6 +389,7 @@ function replaceActiveFiles(files: File[]) {
   entry.inspectPromise = undefined;
   entry.previewNormalizedPromise = undefined;
   entry.optimizedPreview = undefined;
+  entry.optimizationReport = undefined;
   entry.sourceMaxLod = 0;
   queue.update(entry.id, {
     name: group.primary.name,
@@ -504,6 +517,7 @@ function focusRow(id: string) {
   if (activeId !== id) cancelPreviewNormalizations();
   activeId = id;
   queue.setActive(id);
+  renderActiveOptimizationReport();
   const file = entry.file;
   const previewPromise = previewInput(entry, file);
   if (!queue.list().find((row) => row.id === entry.id)?.inspect) {
@@ -698,8 +712,110 @@ async function previewGlb(
   }
 }
 
-// Stats diff — renders the compact before/after panel below both viewers.
-function renderStats(before: InspectResult, after: InspectResult, changes: OptimizeChange[]) {
+function formatCompactCount(value: number): string {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`;
+  return `${Math.round(value)}`;
+}
+
+function changesForSelectedLods(
+  changes: OptimizeChange[],
+  selectedLods: number[],
+): OptimizeChange[] {
+  const selected = new Set(selectedLods);
+  return changes.filter((change) => {
+    const lodReference = /\bLOD(\d+)\b/i.exec(change.detail);
+    return !lodReference || selected.has(Number(lodReference[1]));
+  });
+}
+
+function renderActiveOptimizationReport(): void {
+  const entry = activeId ? fileRows.find((candidate) => candidate.id === activeId) : undefined;
+  const report = entry?.optimizationReport;
+  const row = entry ? queue.list().find((candidate) => candidate.id === entry.id) : undefined;
+  if (!entry || !report || !row || report.key !== optimizationOptionsKey(readOptions())) {
+    hideStats();
+    return;
+  }
+
+  const selectedLods = row.selectedLods.filter((level) =>
+    report.lodCatalog.availableLods.includes(level),
+  );
+  const after = { ...report.result.stats };
+  if (selectedLods.length > 0) {
+    const selection = summarizeGlbLodSelection(report.lodCatalog, selectedLods);
+    after.meshes = selection.meshes;
+    after.materials = selection.materials;
+    after.textures = selection.textures;
+    after.textureMaxSize = selection.textureMaxSize;
+    after.triangles = selection.triangles;
+    after.vertices = selection.vertices;
+  } else {
+    after.meshes = 0;
+    after.materials = 0;
+    after.textures = 0;
+    after.textureMaxSize = 0;
+    after.triangles = 0;
+    after.vertices = 0;
+  }
+
+  renderStats(
+    report.before,
+    after,
+    changesForSelectedLods(report.result.changes, selectedLods),
+    entry.file.name,
+    selectedLods,
+    report.lodCatalog,
+  );
+}
+
+function updateOptimizationReport(
+  entry: FileRow,
+  before: InspectResult,
+  result: OptimizeResult,
+  key: string,
+): void {
+  entry.optimizationReport = {
+    key,
+    before,
+    result,
+    lodCatalog: inspectGlbLodCatalog({ name: entry.file.name, data: result.data }),
+  };
+  if (entry.id === activeId) renderActiveOptimizationReport();
+}
+
+// Stats diff — renders the selected export package below both viewers.
+function renderStats(
+  before: InspectResult,
+  after: InspectResult,
+  changes: OptimizeChange[],
+  objectName: string,
+  selectedLods: number[],
+  lodCatalog: GlbLodCatalog,
+) {
+  const selectionLabel =
+    selectedLods.length > 0
+      ? selectedLods.map((level) => `LOD${level}`).join(' + ')
+      : 'No LODs selected';
+  statsSummaryHint.textContent = `${objectName} · ${selectionLabel} · source → export`;
+  statsSummaryHint.title = statsSummaryHint.textContent;
+  statsLods.innerHTML = '';
+  if (selectedLods.length === 0) {
+    const empty = document.createElement('span');
+    empty.className = 'stats-lod stats-lod-empty';
+    empty.textContent = 'No LODs selected for export';
+    statsLods.append(empty);
+  } else {
+    const selected = new Set(selectedLods);
+    for (const level of lodCatalog.levels) {
+      if (!selected.has(level.level)) continue;
+      const chip = document.createElement('span');
+      chip.className = 'stats-lod';
+      chip.textContent = `LOD${level.level} · ${formatCompactCount(level.triangles)} tris`;
+      statsLods.append(chip);
+    }
+  }
+
   statsGrid.innerHTML = '';
   const rows: {
     label: string;
@@ -712,13 +828,13 @@ function renderStats(before: InspectResult, after: InspectResult, changes: Optim
       label: 'Triangles',
       before: before.triangles,
       after: after.triangles,
-      format: (n) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`),
+      format: formatCompactCount,
     },
     {
       label: 'Vertices',
       before: before.vertices,
       after: after.vertices,
-      format: (n) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`),
+      format: formatCompactCount,
     },
     {
       label: 'Meshes',
@@ -792,6 +908,9 @@ function renderStats(before: InspectResult, after: InspectResult, changes: Optim
 
 function hideStats() {
   statsPanel.hidden = true;
+  statsSummaryHint.textContent = 'Source → selected export';
+  statsSummaryHint.removeAttribute('title');
+  statsLods.innerHTML = '';
   statsGrid.innerHTML = '';
   statsChanges.innerHTML = '';
   statsChangesWrap.hidden = true;
@@ -817,17 +936,20 @@ queue.onPreviewOne((id) => {
 });
 queue.onLodSelectionChange((id) => {
   const row = queue.list().find((candidate) => candidate.id === id);
-  if (!row || (row.status !== 'done' && row.status !== 'error')) return;
-  queue.update(id, {
-    status: 'queued',
-    progress: 0,
-    phase: undefined,
-    result: undefined,
-    errorMessage: undefined,
-    selected: true,
-  });
-  resetOutputPreview();
-  syncSaveAllVisibility();
+  if (!row) return;
+  if (row.status === 'done' || row.status === 'error') {
+    queue.update(id, {
+      status: 'queued',
+      progress: 0,
+      phase: undefined,
+      result: undefined,
+      errorMessage: undefined,
+      selected: true,
+    });
+    resetOutputPreview();
+    syncSaveAllVisibility();
+  }
+  if (id === activeId) renderActiveOptimizationReport();
 });
 queue.onRowClick((id) => {
   // Click on a row → focus it and show the source preview in INPUT.
@@ -848,6 +970,7 @@ queue.onRemoveOne((id) => {
     inputEmpty.hidden = false;
     inputCanvas.hidden = true;
     inputViewer.clear();
+    hideStats();
   }
   if (queue.list().length === 0) clearAll();
 });
@@ -1064,7 +1187,7 @@ async function generateOptimizedPreview() {
     updateProgress(1, 'Optimized preview ready');
     await nextPaint();
     finishOutputLoading(request);
-    renderStats(before, result.stats, result.changes);
+    updateOptimizationReport(target, before, result, cacheKey);
     if (result.changes.length === 0) {
       toast('Optimized preview ready · current settings made no changes.', 'ok');
     } else {
@@ -1131,8 +1254,6 @@ async function convertAll() {
         lodLevels: number[];
       }
     | undefined;
-  let renderedOptimizationStats = false;
-
   const updateItemProgress = (entry: FileRow, progress: number, detail: string): void => {
     const monotonic = Math.max(lastItemProgress.get(entry.id) ?? 0, progress);
     lastItemProgress.set(entry.id, monotonic);
@@ -1192,9 +1313,8 @@ async function convertAll() {
       }
 
       const beforeStats = queue.list().find((row) => row.id === entry.id)?.inspect;
-      if (!renderedOptimizationStats && optimized && beforeStats) {
-        renderStats(beforeStats, optimized.stats, optimized.changes);
-        renderedOptimizationStats = true;
+      if (optimized && beforeStats) {
+        updateOptimizationReport(entry, beforeStats, optimized, cacheKey);
       }
 
       const preparedName = `${sourceFile.name.replace(/\.[^.]+$/, '')}.glb`;

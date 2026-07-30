@@ -1240,9 +1240,13 @@ body {
   color: var(--fg-2);
 }
 .stats-summary-hint {
+  min-width: 0;
+  overflow: hidden;
   color: var(--fg-2);
   font-family: var(--mono);
   font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .stats-body {
   display: grid;
@@ -1250,6 +1254,29 @@ body {
   max-height: min(30vh, 260px);
   padding: 0 10px 8px;
   overflow-y: auto;
+}
+.stats-lods {
+  display: flex;
+  min-width: 0;
+  gap: 5px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.stats-lod {
+  flex: 0 0 auto;
+  padding: 3px 7px;
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-2));
+  color: var(--fg-1);
+  font-family: var(--mono);
+  font-size: 10px;
+  white-space: nowrap;
+}
+.stats-lod-empty {
+  border-color: var(--err);
+  background: color-mix(in srgb, var(--err) 8%, var(--bg-2));
+  color: var(--err);
 }
 .stats-grid {
   display: grid;
