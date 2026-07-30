@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // Tell the converter where the vendored assimpjs files live (for tests).
-process.env.G2F_ASSIMP_DIR = resolve(__dirname, 'src', 'client', 'public');
+process.env.MODELSHIFT_ASSIMP_DIR = resolve(__dirname, 'src', 'client', 'public');
 
 export default defineConfig({
   test: {

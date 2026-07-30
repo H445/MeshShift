@@ -5,12 +5,6 @@ import type { ConvertOptions } from '../src/shared/options.js';
 describe('optimized preview cache', () => {
   const optimized: ConvertOptions = {
     outputFormat: 'fbx',
-    embedTextures: true,
-    scale: 1,
-    axis: 'y-up',
-    animationFilter: 'all',
-    morphTargets: true,
-    targetEngine: 'auto',
     maxTextureSize: 2048,
     maxTriangles: 50_000,
     mergeByMaterial: true,
@@ -18,22 +12,16 @@ describe('optimized preview cache', () => {
     lodTriangleTargets: [20_000, 8_000, 2_000],
   };
 
-  it('reuses an optimized model when only export settings change', () => {
+  it('reuses an optimized model when only the output format changes', () => {
     const anotherExport: ConvertOptions = {
       ...optimized,
       outputFormat: 'obj',
-      embedTextures: false,
-      scale: 100,
-      axis: 'z-up',
-      animationFilter: 'none',
-      morphTargets: false,
     };
 
     expect(optimizationOptionsKey(anotherExport)).toBe(optimizationOptionsKey(optimized));
   });
 
   it.each([
-    ['target engine', { targetEngine: 'unreal' as const }],
     ['texture limit', { maxTextureSize: 1024 }],
     ['triangle limit', { maxTriangles: 25_000 }],
     ['material merging', { mergeByMaterial: false }],

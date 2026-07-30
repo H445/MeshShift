@@ -3,13 +3,6 @@
  * Keep this file framework-free so it can be imported anywhere.
  */
 
-export type AxisUp = 'y-up' | 'z-up';
-
-export type AnimationFilter = 'all' | 'skeletal' | 'none';
-
-/** Target game engine preset. Drives defaults for axis, texture size, etc. */
-export type TargetEngine = 'auto' | 'unity' | 'unreal' | 'godot';
-
 export type OutputFormat = 'fbx' | 'glb' | 'gltf' | 'obj' | 'stl' | 'ply' | 'dae';
 
 /** A user-selected mesh point that must survive LOD simplification. */
@@ -29,24 +22,11 @@ export interface DetailPin {
 export interface ConvertOptions {
   /** Output container/format. Default 'fbx' for backwards compatibility. */
   outputFormat?: OutputFormat;
-  /** Embed textures where the selected output supports it. Default true. */
-  embedTextures?: boolean;
-  /** Uniform scale applied to the root. Default 1. */
-  scale?: number;
-  /** Output axis convention. Default 'y-up' (three.js native). */
-  axis?: AxisUp;
-  /** Which animations to export. Default 'all'. */
-  animationFilter?: AnimationFilter;
-  /** Export morph targets (blend shapes). Default true. */
-  morphTargets?: boolean;
   /** Resize textures above this size (px, longest edge). Default 2048. */
   maxTextureSize?: number;
 
   // --- Optimization (game-engine friendly) ---
 
-  /** Target engine preset. Adjusts defaults for axis/texture size when other
-   *  fields are left at their defaults. Default 'auto' (no preset applied). */
-  targetEngine?: TargetEngine;
   /** Hard cap on triangle count per mesh. Meshes above this are decimated.
    *  0 / undefined = no decimation. Default 0. */
   maxTriangles?: number;
@@ -68,18 +48,11 @@ export interface ConvertOptions {
   onProgress?: (phase: ConvertPhase, pct: number) => void;
 }
 
-export const DEFAULT_OPTIONS: Required<Omit<ConvertOptions, 'onProgress' | 'targetEngine'>> & {
+export const DEFAULT_OPTIONS: Required<Omit<ConvertOptions, 'onProgress'>> & {
   onProgress?: ConvertOptions['onProgress'];
-  targetEngine?: ConvertOptions['targetEngine'];
 } = {
   outputFormat: 'fbx',
-  embedTextures: true,
-  scale: 1,
-  axis: 'y-up',
-  animationFilter: 'all',
-  morphTargets: true,
   maxTextureSize: 2048,
-  targetEngine: 'auto',
   maxTriangles: 0,
   mergeByMaterial: false,
   generateLODs: 0,
@@ -98,40 +71,6 @@ export const DEFAULT_LOD_TRIANGLE_RATIOS = [0.5, 0.3, 0.2, 0.12] as const;
  * targets continue to take precedence over this cap.
  */
 export const DEFAULT_DEEPEST_LOD_TRIANGLE_CAP = 450;
-
-/**
- * Engine-specific preset defaults. Applied when targetEngine is set and
- * the user hasn't explicitly overridden the field. We treat undefined /
- * equal-to-default as "not set".
- */
-export interface EnginePreset {
-  axis: AxisUp;
-  maxTextureSize: number;
-  scale: number;
-}
-
-export const ENGINE_PRESETS: Record<Exclude<TargetEngine, 'auto'>, EnginePreset> = {
-  unity: { axis: 'y-up', maxTextureSize: 2048, scale: 1 },
-  unreal: { axis: 'z-up', maxTextureSize: 2048, scale: 1 },
-  godot: { axis: 'y-up', maxTextureSize: 1024, scale: 1 },
-};
-
-/**
- * Apply the engine preset to a ConvertOptions object. Only fills in fields
- * that are at their default value, so explicit user choices win.
- */
-export function applyEnginePreset(opts: ConvertOptions): ConvertOptions {
-  if (!opts.targetEngine || opts.targetEngine === 'auto') return opts;
-  const preset = ENGINE_PRESETS[opts.targetEngine];
-  const defaults = DEFAULT_OPTIONS;
-  const out = { ...opts };
-  if (opts.axis === undefined || opts.axis === defaults.axis) out.axis = preset.axis;
-  if (opts.maxTextureSize === undefined || opts.maxTextureSize === defaults.maxTextureSize) {
-    out.maxTextureSize = preset.maxTextureSize;
-  }
-  if (opts.scale === undefined || opts.scale === defaults.scale) out.scale = preset.scale;
-  return out;
-}
 
 export type ConvertPhase =
   | 'parse'

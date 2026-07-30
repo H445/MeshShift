@@ -6,12 +6,13 @@
  * to give the user a sense of what they're about to convert. It does
  * NOT do the full conversion — that path is convertGltfToFbx.
  *
- * Works in both browser and Node. In Node we polyfill `Image` because
- * three.js's GLTFLoader calls `new Image()` for texture loading — but
- * for inspection we don't care about pixel data, so the polyfill
- * resolves the load with 0×0 dimensions.
+ * Works in both browser and Node. In Node we provide the small DOM surface
+ * three.js needs to load embedded PNG/JPEG textures. The encoded image bytes
+ * are retained so GLTFExporter can write unchanged textures back out without
+ * a native canvas dependency.
  */
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { Box3, Vector3, type Matrix4 } from 'three';
 import type { InspectResult } from '../shared/options.js';
 
 declare const __IS_BROWSER__: boolean | undefined;
@@ -25,9 +26,187 @@ declare const __IS_BROWSER__: boolean | undefined;
 // never read pixel data here (texture resize in the browser does the real work).
 const isBrowser =
   typeof __IS_BROWSER__ === 'boolean' ? __IS_BROWSER__ : typeof window !== 'undefined';
-if (!isBrowser) {
+
+const NODE_IMAGE_SOURCE = Symbol('modelshift.nodeImageSource');
+
+interface NodeImageSource {
+  blob: Blob;
+  mimeType: string;
+  width: number;
+  height: number;
+}
+
+interface NodeImageLike {
+  width: number;
+  height: number;
+  [NODE_IMAGE_SOURCE]?: NodeImageSource;
+}
+
+function pngDimensions(bytes: Uint8Array): { width: number; height: number } | null {
+  if (
+    bytes.byteLength < 24 ||
+    bytes[0] !== 0x89 ||
+    bytes[1] !== 0x50 ||
+    bytes[2] !== 0x4e ||
+    bytes[3] !== 0x47 ||
+    bytes[4] !== 0x0d ||
+    bytes[5] !== 0x0a ||
+    bytes[6] !== 0x1a ||
+    bytes[7] !== 0x0a
+  ) {
+    return null;
+  }
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  return { width: view.getUint32(16), height: view.getUint32(20) };
+}
+
+function jpegDimensions(bytes: Uint8Array): { width: number; height: number } | null {
+  if (bytes.byteLength < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8) return null;
+  let offset = 2;
+  while (offset + 8 < bytes.byteLength) {
+    if (bytes[offset] !== 0xff) {
+      offset++;
+      continue;
+    }
+    while (offset < bytes.byteLength && bytes[offset] === 0xff) offset++;
+    const marker = bytes[offset++];
+    if (
+      marker === 0xd8 ||
+      marker === 0xd9 ||
+      marker === 0x01 ||
+      (marker >= 0xd0 && marker <= 0xd7)
+    ) {
+      continue;
+    }
+    if (offset + 2 > bytes.byteLength) return null;
+    const segmentLength = (bytes[offset] << 8) | bytes[offset + 1];
+    if (segmentLength < 2 || offset + segmentLength > bytes.byteLength) return null;
+    const isStartOfFrame =
+      (marker >= 0xc0 && marker <= 0xc3) ||
+      (marker >= 0xc5 && marker <= 0xc7) ||
+      (marker >= 0xc9 && marker <= 0xcb) ||
+      (marker >= 0xcd && marker <= 0xcf);
+    if (isStartOfFrame && segmentLength >= 7) {
+      return {
+        height: (bytes[offset + 3] << 8) | bytes[offset + 4],
+        width: (bytes[offset + 5] << 8) | bytes[offset + 6],
+      };
+    }
+    offset += segmentLength;
+  }
+  return null;
+}
+
+function encodedImageDimensions(
+  bytes: Uint8Array,
+  mimeType: string,
+): { width: number; height: number } | null {
+  if (mimeType === 'image/png') return pngDimensions(bytes);
+  if (mimeType === 'image/jpeg' || mimeType === 'image/jpg') return jpegDimensions(bytes);
+  return pngDimensions(bytes) ?? jpegDimensions(bytes);
+}
+
+class NodePassthroughCanvasContext {
+  imageSmoothingQuality = 'low';
+  fillStyle: string | CanvasGradient | CanvasPattern = '#000000';
+  private source: NodeImageSource | null = null;
+  private transformed = false;
+  private composed = false;
+
+  constructor(private readonly canvas: NodePassthroughCanvas) {}
+
+  translate(x: number, y: number): void {
+    if (x !== 0 || y !== 0) this.transformed = true;
+  }
+
+  scale(x: number, y: number): void {
+    if (x !== 1 || y !== 1) this.transformed = true;
+  }
+
+  drawImage(image: NodeImageLike, _x: number, _y: number, width: number, height: number): void {
+    const source = image[NODE_IMAGE_SOURCE];
+    if (!source) {
+      throw new Error(
+        'Node texture export requires an unchanged embedded PNG or JPEG source image.',
+      );
+    }
+    if (
+      width !== source.width ||
+      height !== source.height ||
+      this.canvas.width !== source.width ||
+      this.canvas.height !== source.height
+    ) {
+      throw new Error('Node texture export cannot resize images without a canvas implementation.');
+    }
+    if (this.source && this.source !== source) this.composed = true;
+    this.source = source;
+  }
+
+  fillRect(): void {
+    this.composed = true;
+  }
+
+  getImageData(): never {
+    throw new Error(
+      'Node texture export cannot read image pixels without a canvas implementation.',
+    );
+  }
+
+  putImageData(): void {
+    this.composed = true;
+  }
+
+  sourceBlob(mimeType: string): Blob {
+    if (!this.source) {
+      throw new Error('Node texture export did not receive an encoded source image.');
+    }
+    if (this.transformed) {
+      throw new Error('Node texture export cannot flip images without a canvas implementation.');
+    }
+    if (this.composed) {
+      throw new Error(
+        'Node texture export cannot composite images without a canvas implementation.',
+      );
+    }
+    const requestedType = mimeType.toLowerCase();
+    const sourceType = this.source.mimeType.toLowerCase();
+    if (requestedType && requestedType !== sourceType) {
+      throw new Error(
+        `Node texture export cannot transcode ${sourceType || 'an image'} to ${requestedType}.`,
+      );
+    }
+    return this.source.blob;
+  }
+}
+
+class NodePassthroughCanvas {
+  width = 0;
+  height = 0;
+  private readonly context = new NodePassthroughCanvasContext(this);
+
+  getContext(contextId: string): NodePassthroughCanvasContext | null {
+    return contextId === '2d' ? this.context : null;
+  }
+
+  toBlob(callback: (blob: Blob) => void, mimeType = ''): void {
+    callback(this.context.sourceBlob(mimeType));
+  }
+
+  convertToBlob(options: { type?: string } = {}): Promise<Blob> {
+    return Promise.resolve(this.context.sourceBlob(options.type ?? ''));
+  }
+}
+
+/** Install the minimal DOM aliases three.js needs for textured glTF in Node. */
+export function installNodeGltfLoaderPolyfills(): void {
+  if (isBrowser) return;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const g: any = globalThis;
+  // GLTFLoader refers to `self.URL` when resolving embedded image blobs.
+  // Node exposes URL.createObjectURL(), but not the browser/worker `self`
+  // alias, so make the alias explicit before any textured asset is parsed.
+  if (typeof g.self === 'undefined') g.self = g;
+  if (typeof g.self.URL === 'undefined') g.self.URL = g.URL;
   if (typeof g.ProgressEvent === 'undefined') {
     class NodeProgressEvent {
       readonly type: string;
@@ -44,24 +223,99 @@ if (!isBrowser) {
     }
     g.ProgressEvent = NodeProgressEvent;
   }
-  if (typeof g.Image === 'undefined') {
-    class NodeImage {
-      width = 0;
-      height = 0;
-      onload: (() => void) | null = null;
-      onerror: ((e: unknown) => void) | null = null;
-      private _src = '';
-      get src(): string {
-        return this._src;
-      }
-      set src(v: string) {
-        this._src = v;
-        // Resolve as a successful empty image. Use queueMicrotask so
-        // listeners attached right after the src= assignment still fire.
-        queueMicrotask(() => this.onload?.());
+  class NodeImage {
+    width = 0;
+    height = 0;
+    naturalWidth = 0;
+    naturalHeight = 0;
+    crossOrigin: string | null = null;
+    onload: (() => void) | null = null;
+    onerror: ((e: unknown) => void) | null = null;
+    private _src = '';
+    private requestId = 0;
+    private readonly listeners = new Map<string, Set<(event: unknown) => void>>();
+    [NODE_IMAGE_SOURCE]?: NodeImageSource;
+
+    addEventListener(type: string, listener: (event: unknown) => void): void {
+      const listeners = this.listeners.get(type) ?? new Set<(event: unknown) => void>();
+      listeners.add(listener);
+      this.listeners.set(type, listeners);
+    }
+
+    removeEventListener(type: string, listener: (event: unknown) => void): void {
+      this.listeners.get(type)?.delete(listener);
+    }
+
+    private dispatch(type: 'load' | 'error', reason?: unknown): void {
+      const event = { type, target: this, error: reason };
+      for (const listener of this.listeners.get(type) ?? []) listener.call(this, event);
+      if (type === 'load') this.onload?.call(this);
+      else this.onerror?.call(this, reason);
+    }
+
+    get src(): string {
+      return this._src;
+    }
+
+    set src(v: string) {
+      this._src = v;
+      const requestId = ++this.requestId;
+      void this.load(v, requestId);
+    }
+
+    private async load(url: string, requestId: number): Promise<void> {
+      try {
+        if (!url.startsWith('blob:') && !url.startsWith('data:')) {
+          throw new Error(
+            'Node glTF texture loading supports embedded blob: and data: images only.',
+          );
+        }
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`Image request failed with status ${response.status}.`);
+        const blob = await response.blob();
+        const bytes = new Uint8Array(await blob.arrayBuffer());
+        const mimeType = (blob.type || response.headers.get('content-type') || '').toLowerCase();
+        const dimensions = encodedImageDimensions(bytes, mimeType);
+        if (!dimensions || dimensions.width < 1 || dimensions.height < 1) {
+          throw new Error(`Unsupported or invalid embedded image type: ${mimeType || 'unknown'}.`);
+        }
+        if (requestId !== this.requestId) return;
+        this.width = dimensions.width;
+        this.height = dimensions.height;
+        this.naturalWidth = dimensions.width;
+        this.naturalHeight = dimensions.height;
+        this[NODE_IMAGE_SOURCE] = {
+          blob,
+          mimeType,
+          width: dimensions.width,
+          height: dimensions.height,
+        };
+        this.dispatch('load');
+      } catch (error) {
+        if (requestId === this.requestId) this.dispatch('error', error);
       }
     }
+  }
+
+  if (typeof g.Image === 'undefined') {
     g.Image = NodeImage;
+  }
+  if (typeof g.HTMLImageElement === 'undefined') {
+    g.HTMLImageElement = g.Image;
+  }
+  if (typeof g.HTMLCanvasElement === 'undefined') {
+    g.HTMLCanvasElement = NodePassthroughCanvas;
+  }
+  if (typeof g.document === 'undefined') {
+    const createElement = (tagName: string) => {
+      if (tagName.toLowerCase() === 'img') return new g.Image();
+      if (tagName.toLowerCase() === 'canvas') return new NodePassthroughCanvas();
+      throw new Error(`Node glTF processing cannot create <${tagName}>.`);
+    };
+    g.document = {
+      createElement,
+      createElementNS: (_namespace: string, tagName: string) => createElement(tagName),
+    };
   }
   if (typeof g.FileReader === 'undefined') {
     class NodeFileReader {
@@ -149,6 +403,8 @@ if (!isBrowser) {
   }
 }
 
+installNodeGltfLoaderPolyfills();
+
 // Tiny helper to assert we have a real (non-shared) ArrayBuffer. Used
 // to make the TS compiler happy with the `Uint8Array.buffer` access
 // patterns below — three.js's GLTFLoader accepts `ArrayBuffer` but
@@ -230,6 +486,21 @@ function computeBBox(geo: {
   return { min, max };
 }
 
+function worldBBox(
+  local: { min: [number, number, number]; max: [number, number, number] },
+  matrixWorld?: Matrix4,
+): { min: [number, number, number]; max: [number, number, number] } {
+  if (!matrixWorld) return local;
+  const box = new Box3(
+    new Vector3(local.min[0], local.min[1], local.min[2]),
+    new Vector3(local.max[0], local.max[1], local.max[2]),
+  ).applyMatrix4(matrixWorld);
+  return {
+    min: [box.min.x, box.min.y, box.min.z],
+    max: [box.max.x, box.max.y, box.max.z],
+  };
+}
+
 /**
  * Parse a glTF / GLB ArrayBuffer and return scene metadata.
  * Throws on parse failure.
@@ -302,32 +573,48 @@ function walkScene(gltf: {
   let bones = 0;
   let hasSkin = false;
   let hasMorph = false;
+  let morphTargets = 0;
   // Bounding box
   const min: [number, number, number] = [Infinity, Infinity, Infinity];
   const max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
 
+  root.updateMatrixWorld?.(true);
   root.traverse(
     (obj: {
       isMesh?: boolean;
       isSkinnedMesh?: boolean;
       geometry?: unknown;
-      material?: unknown;
+      material?: unknown | unknown[];
       materials?: unknown[];
+      matrixWorld?: Matrix4;
       skeleton?: { bones?: unknown[] };
-      morphTargetInfluences?: unknown;
+      morphTargetInfluences?: ArrayLike<number>;
     }) => {
       if (obj.isMesh || obj.isSkinnedMesh) {
         meshes.push(obj);
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const geo = obj.geometry as any;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const morph = (geo as any).morphAttributes;
-        if (morph && (morph.position || morph.normal || morph.color)) hasMorph = true;
+        const morph = (geo as any).morphAttributes as Record<string, unknown> | undefined;
+        const geometryMorphTargets = morph
+          ? Math.max(
+              0,
+              ...Object.values(morph).map((targets) =>
+                Array.isArray(targets) ? targets.length : 0,
+              ),
+            )
+          : 0;
+        const meshMorphTargets = Math.max(
+          geometryMorphTargets,
+          obj.morphTargetInfluences?.length ?? 0,
+        );
+        if (meshMorphTargets > 0) hasMorph = true;
+        morphTargets += meshMorphTargets;
 
         triangles += geomTriangleCount(geo);
         vertices += geomVertexCount(geo);
 
-        const bb = computeBBox(geo);
+        const bb = worldBBox(computeBBox(geo), obj.matrixWorld);
         if (bb.min[0] < min[0]) min[0] = bb.min[0];
         if (bb.min[1] < min[1]) min[1] = bb.min[1];
         if (bb.min[2] < min[2]) min[2] = bb.min[2];
@@ -336,8 +623,12 @@ function walkScene(gltf: {
         if (bb.max[2] > max[2]) max[2] = bb.max[2];
 
         // Material(s) — Mesh can have an array of materials (multi-material mesh).
-        const mats =
-          (obj.materials as unknown[] | undefined) ?? (obj.material ? [obj.material] : []);
+        const materialValue = obj.materials ?? obj.material;
+        const mats = Array.isArray(materialValue)
+          ? materialValue
+          : materialValue
+            ? [materialValue]
+            : [];
         for (const m of mats) {
           if (m) materials.add(m);
           // Collect texture refs from the material (three.js standard / physical).
@@ -419,7 +710,7 @@ function walkScene(gltf: {
     textureList,
     animations,
     bones,
-    morphTargets: hasMorph ? 1 : 0, // we only know "has at least one" without counting slots
+    morphTargets,
     triangles: Math.round(triangles),
     vertices: Math.round(vertices),
     hasSkin,

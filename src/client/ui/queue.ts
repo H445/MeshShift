@@ -1,9 +1,10 @@
 /**
  * Queue UI — list of files in the bottom panel.
  * Renders rows with per-file status, progress, checkbox (for batch opt-in),
- * click-to-preview, and retry-save-to-exports button.
+ * direct conversion, click-to-preview, and retry-save-to-exports controls.
  */
 import type { ConvertResult, InspectResult } from '../../shared/options.js';
+import { selectConversionTargets } from '../lib/conversion-targets.js';
 import { normalizeLodLevels } from '../lib/lod-selection.js';
 
 export type QueueStatus = 'queued' | 'converting' | 'done' | 'error';
@@ -33,28 +34,24 @@ export interface QueueHandle {
   remove(id: string): void;
   clear(): void;
   list(): QueueRow[];
-  /** Returns rows that are checked in (selected AND not yet converted). */
-  selectedForConvert(): QueueRow[];
-  /** Toggles a row's selected state. */
-  toggleSelected(id: string): void;
+  /** Resolves either the checked batch or one explicitly requested row. */
+  conversionTargets(requestedId?: string): QueueRow[];
   /** Sets all rows' selected state to the same value. */
   selectAll(selected: boolean): void;
   /** Sets a single row as the "active" row (visually highlighted). */
   setActive(id: string | null): void;
   /** Returns { selected, total } counts. */
   selectionCounts(): { selected: number; total: number };
-  onConvertAll(cb: () => void): void;
-  onClear(cb: () => void): void;
-  onSaveAll(cb: () => void): void;
+  /** Locks queue mutations and row actions during a conversion run. */
+  setBusy(busy: boolean): void;
+  onConvertOne(cb: (id: string) => void): void;
   onSaveOne(cb: (id: string) => void): void;
   onPreviewOne(cb: (id: string) => void): void;
   onRemoveOne(cb: (id: string) => void): void;
   onRowClick(cb: (id: string) => void): void;
   onLodSelectionChange(cb: (id: string, levels: number[]) => void): void;
   onSelectionChange(cb: (counts: { selected: number; total: number }) => void): void;
-  onSelectAll(cb: (selected: boolean) => void): void;
   showSaveAllButton(show: boolean): void;
-  onCountChange(cb: (n: number) => void): void;
 }
 
 function formatBytes(n: number): string {
@@ -69,22 +66,19 @@ function formatTriangles(n: number): string {
   return `${Math.round(n)} tris`;
 }
 
-export function createQueue(_host: HTMLElement, listEl: HTMLElement): QueueHandle {
+export function createQueue(listEl: HTMLElement): QueueHandle {
   const rows: QueueRow[] = [];
   let activeId: string | null = null;
+  let busy = false;
   const handlers = {
-    convertAll: () => {},
-    clear: () => {},
-    saveAll: () => {},
+    convertOne: (_id: string) => {},
     saveOne: (_id: string) => {},
     previewOne: (_id: string) => {},
     removeOne: (_id: string) => {},
     rowClick: (_id: string) => {},
     lodSelection: (_id: string, _levels: number[]) => {},
-    selectAll: (_selected: boolean) => {},
   };
   const globalLodHost = document.getElementById('queue-global-lods') as HTMLElement | null;
-  let countCb: (n: number) => void = () => {};
   let selectionCb: (counts: { selected: number; total: number }) => void = () => {};
 
   function renderGlobalLodControls(): void {
@@ -98,7 +92,7 @@ export function createQueue(_host: HTMLElement, listEl: HTMLElement): QueueHandl
     title.className = 'queue-lod-label';
     title.textContent = 'All files';
     globalLodHost.append(title);
-    const locked = rows.some((row) => row.status === 'converting');
+    const locked = busy || rows.some((row) => row.status === 'converting');
 
     for (const level of levels) {
       const applicable = rows.filter((row) => row.availableLods.includes(level));
@@ -143,7 +137,7 @@ export function createQueue(_host: HTMLElement, listEl: HTMLElement): QueueHandl
       const li = document.createElement('li');
       li.className = 'queue-item';
       if (r.selected) li.classList.add('checked');
-      if (!r.selected) li.classList.add('skipped');
+      if (!r.selected && r.status === 'queued') li.classList.add('skipped');
       if (r.id === activeId) li.classList.add('active');
 
       // Checkbox — controls whether this row is included in the next
@@ -152,6 +146,7 @@ export function createQueue(_host: HTMLElement, listEl: HTMLElement): QueueHandl
       check.type = 'checkbox';
       check.className = 'queue-item-check';
       check.checked = r.selected;
+      check.disabled = busy;
       check.setAttribute('aria-label', `Include ${r.name} in conversion`);
       check.title = r.selected
         ? 'Included in conversion — uncheck to skip'
@@ -160,7 +155,7 @@ export function createQueue(_host: HTMLElement, listEl: HTMLElement): QueueHandl
       check.addEventListener('change', () => {
         r.selected = check.checked;
         li.classList.toggle('checked', r.selected);
-        li.classList.toggle('skipped', !r.selected);
+        li.classList.toggle('skipped', !r.selected && r.status === 'queued');
         notifySelection();
       });
 
@@ -216,7 +211,7 @@ export function createQueue(_host: HTMLElement, listEl: HTMLElement): QueueHandl
           const input = document.createElement('input');
           input.type = 'checkbox';
           input.checked = r.selectedLods.includes(level);
-          input.disabled = r.status === 'converting';
+          input.disabled = busy || r.status === 'converting';
           input.setAttribute('aria-label', `Save LOD${level} for ${r.name}`);
           input.addEventListener('click', (event) => event.stopPropagation());
           input.addEventListener('change', () => {
@@ -259,10 +254,12 @@ export function createQueue(_host: HTMLElement, listEl: HTMLElement): QueueHandl
 
       // Remove button — always present so users can clean up the queue.
       const remove = document.createElement('button');
+      remove.type = 'button';
       remove.className = 'queue-item-remove';
       remove.title = 'Remove from queue';
       remove.setAttribute('aria-label', `Remove ${r.name}`);
       remove.textContent = '×';
+      remove.disabled = busy;
       remove.addEventListener('click', (e) => {
         e.stopPropagation();
         handlers.removeOne(r.id);
@@ -270,32 +267,64 @@ export function createQueue(_host: HTMLElement, listEl: HTMLElement): QueueHandl
 
       const action = document.createElement('div');
       action.className = 'queue-item-actions';
+      const convert = document.createElement('button');
+      convert.type = 'button';
+      convert.className = `btn ${
+        r.status === 'done' ? 'btn-secondary' : 'btn-primary'
+      } queue-item-convert`;
+      convert.textContent =
+        r.status === 'converting'
+          ? 'Converting…'
+          : r.status === 'error'
+            ? 'Retry'
+            : r.status === 'done'
+              ? 'Convert again'
+              : 'Convert';
+      convert.title =
+        r.status === 'done'
+          ? `Convert ${r.name} again using the current settings`
+          : `Convert only ${r.name}`;
+      convert.setAttribute('aria-label', `${convert.textContent} ${r.name}`);
+      convert.disabled = busy || r.status === 'converting';
+      convert.addEventListener('click', (event) => {
+        event.stopPropagation();
+        handlers.convertOne(r.id);
+      });
+
       if (r.status === 'done' && r.result) {
         const preview = document.createElement('button');
+        preview.type = 'button';
         preview.className = 'btn btn-secondary';
         preview.textContent = 'Preview';
         preview.title = 'Show this converted asset in the right-side viewer';
+        preview.setAttribute('aria-label', `Preview ${r.name}`);
+        preview.disabled = busy;
         preview.addEventListener('click', (e) => {
           e.stopPropagation();
           handlers.previewOne(r.id);
         });
 
         const save = document.createElement('button');
+        save.type = 'button';
         save.className = 'btn btn-primary';
         save.textContent = 'Save again';
         save.title = 'Save again or overwrite converted files in the project exports folder';
+        save.setAttribute('aria-label', `Save ${r.name} again`);
+        save.disabled = busy;
         save.addEventListener('click', (e) => {
           e.stopPropagation();
           handlers.saveOne(r.id);
         });
 
-        action.append(preview, save);
+        action.append(convert, preview, save);
       } else if (r.status === 'error') {
         const err = document.createElement('span');
         err.className = 'queue-item-error';
         err.textContent = r.errorMessage ?? 'Failed';
         err.title = err.textContent;
-        action.append(err);
+        action.append(err, convert);
+      } else {
+        action.append(convert);
       }
 
       // Click anywhere on the row (outside of the interactive children
@@ -311,10 +340,6 @@ export function createQueue(_host: HTMLElement, listEl: HTMLElement): QueueHandl
 
   function nextId() {
     return `q_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
-  }
-
-  function notifyCount() {
-    countCb(rows.length);
   }
 
   function notifySelection() {
@@ -339,47 +364,40 @@ export function createQueue(_host: HTMLElement, listEl: HTMLElement): QueueHandl
       };
       rows.push(row);
       render();
-      notifyCount();
       notifySelection();
       return row;
     },
     update(id, patch) {
       const r = rows.find((x) => x.id === id);
       if (!r) return;
+      const previousSelected = r.selected;
+      const previousStatus = r.status;
       Object.assign(r, patch);
       r.availableLods = normalizeLodLevels(r.availableLods);
       r.selectedLods = normalizeLodLevels(r.selectedLods).filter((level) =>
         r.availableLods.includes(level),
       );
       render();
+      if (r.selected !== previousSelected || r.status !== previousStatus) notifySelection();
     },
     remove(id) {
       const i = rows.findIndex((x) => x.id === id);
       if (i >= 0) rows.splice(i, 1);
       if (activeId === id) activeId = null;
       render();
-      notifyCount();
       notifySelection();
     },
     clear() {
       rows.length = 0;
       activeId = null;
       render();
-      notifyCount();
       notifySelection();
     },
     list() {
       return rows.slice();
     },
-    selectedForConvert() {
-      return rows.filter((r) => r.selected && r.status !== 'done' && r.status !== 'converting');
-    },
-    toggleSelected(id) {
-      const r = rows.find((x) => x.id === id);
-      if (!r) return;
-      r.selected = !r.selected;
-      render();
-      notifySelection();
+    conversionTargets(requestedId) {
+      return selectConversionTargets(rows, requestedId);
     },
     selectAll(selected) {
       for (const r of rows) r.selected = selected;
@@ -399,14 +417,13 @@ export function createQueue(_host: HTMLElement, listEl: HTMLElement): QueueHandl
     selectionCounts() {
       return selectionCounts();
     },
-    onConvertAll(cb) {
-      handlers.convertAll = cb;
+    setBusy(nextBusy) {
+      if (busy === nextBusy) return;
+      busy = nextBusy;
+      render();
     },
-    onClear(cb) {
-      handlers.clear = cb;
-    },
-    onSaveAll(cb) {
-      handlers.saveAll = cb;
+    onConvertOne(cb) {
+      handlers.convertOne = cb;
     },
     onSaveOne(cb) {
       handlers.saveOne = cb;
@@ -428,15 +445,9 @@ export function createQueue(_host: HTMLElement, listEl: HTMLElement): QueueHandl
       // Fire immediately so the caller can sync the master checkbox + button label.
       cb(selectionCounts());
     },
-    onSelectAll(cb) {
-      handlers.selectAll = cb;
-    },
     showSaveAllButton(show) {
       const btn = document.getElementById('save-all-btn') as HTMLButtonElement | null;
       if (btn) btn.hidden = !show;
-    },
-    onCountChange(cb) {
-      countCb = cb;
     },
   };
 }

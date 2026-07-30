@@ -6,7 +6,6 @@ import type { ConvertOptions } from '../../shared/options.js';
  */
 export function optimizationOptionsKey(options: ConvertOptions): string {
   return JSON.stringify({
-    targetEngine: options.targetEngine ?? 'auto',
     maxTextureSize: options.maxTextureSize ?? 2048,
     maxTriangles: options.maxTriangles ?? 0,
     mergeByMaterial: options.mergeByMaterial ?? false,

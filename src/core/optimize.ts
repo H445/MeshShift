@@ -35,7 +35,6 @@ import {
 import { MeshoptSimplifier, type SimplifierFlags } from 'meshoptimizer';
 import { MeshBVH, type HitPointInfo } from 'three-mesh-bvh';
 import {
-  applyEnginePreset,
   DEFAULT_DEEPEST_LOD_TRIANGLE_CAP,
   DEFAULT_LOD_TRIANGLE_RATIOS,
   type ConvertOptions,
@@ -1568,7 +1567,7 @@ export async function optimizeGltf(
   buf: ArrayBuffer | Uint8Array,
   options: ConvertOptions,
 ): Promise<OptimizeResult> {
-  const opts = applyEnginePreset(options);
+  const opts = options;
   const progress = makeProgress(opts);
   progress('parse', 0);
   const maxTris = Math.max(0, opts.maxTriangles ?? 0);
@@ -1917,68 +1916,75 @@ export async function optimizeGltf(
       if (meshes.length < 2) continue;
       // Only merge meshes that share the same parent (so the
       // hierarchy doesn't get reorganized under the merge root).
-      const parentGroups = new Map<unknown, import('three').Mesh[]>();
+      const parentGroups = new Map<unknown, Map<number, import('three').Mesh[]>>();
       for (const m of meshes) {
-        if (!parentGroups.has(m.parent)) parentGroups.set(m.parent, []);
-        parentGroups.get(m.parent)!.push(m);
+        const lodMatch = /_LOD(\d+)$/i.exec(m.name);
+        const lodLevel = lodMatch ? Number(lodMatch[1]) : 0;
+        if (!parentGroups.has(m.parent)) parentGroups.set(m.parent, new Map());
+        const levelGroups = parentGroups.get(m.parent)!;
+        if (!levelGroups.has(lodLevel)) levelGroups.set(lodLevel, []);
+        levelGroups.get(lodLevel)!.push(m);
       }
-      for (const [parent, group] of parentGroups) {
-        if (group.length < 2) continue;
-        // Compute world matrices so the merged geometry keeps its
-        // visual position.
-        gltf.scene.updateMatrixWorld(true);
-        const worldGeos = group.map((m) => {
-          const g = m.geometry.clone();
+      for (const [parent, levelGroups] of parentGroups) {
+        for (const [lodLevel, group] of levelGroups) {
+          if (group.length < 2) continue;
+          // Compute world matrices so the merged geometry keeps its
+          // visual position.
+          gltf.scene.updateMatrixWorld(true);
+          const worldGeos = group.map((m) => {
+            const g = m.geometry.clone();
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (g as any).applyMatrix4(m.matrixWorld);
+            return g;
+          });
+          let merged: import('three').BufferGeometry | null = null;
+          try {
+            merged = BufferGeometryUtils.mergeGeometries(worldGeos, false);
+          } catch {
+            merged = null;
+          }
+          if (!merged) {
+            // Incompatible attribute sets — skip silently.
+            for (const g of worldGeos) g.dispose();
+            continue;
+          }
+          // Move the merged geometry from world space into the parent's
+          // local space, so it sits where the originals did.
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (g as any).applyMatrix4(m.matrixWorld);
-          return g;
-        });
-        let merged: import('three').BufferGeometry | null = null;
-        try {
-          merged = BufferGeometryUtils.mergeGeometries(worldGeos, false);
-        } catch {
-          merged = null;
-        }
-        if (!merged) {
-          // Incompatible attribute sets — skip silently.
+          const invParentMatrix = (parent as any).matrixWorld.clone().invert();
+          merged.applyMatrix4(invParentMatrix);
+          // Build a replacement mesh using the same class as the source.
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const MeshCtor = group[0].constructor as any;
+          const mergedMesh = new MeshCtor(merged, material);
+          const sourceName = (group[0].name || 'mesh').replace(/_LOD\d+$/i, '');
+          mergedMesh.name = `${sourceName}_merged${lodLevel > 0 ? `_LOD${lodLevel}` : ''}`;
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (parent as any).add(mergedMesh);
+          // Remove originals
+          for (const m of group) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (m.parent as any)?.remove(m);
+          }
+          const totalBefore = group.reduce(
+            (sum, m) =>
+              sum +
+              (m.geometry.index
+                ? m.geometry.index.count / 3
+                : m.geometry.attributes.position.count / 3),
+            0,
+          );
+          const totalAfter = merged.index
+            ? merged.index.count / 3
+            : merged.attributes.position.count / 3;
           for (const g of worldGeos) g.dispose();
-          continue;
+          changes.push({
+            kind: 'merge',
+            detail: `${mergedMesh.name}: ${group.length} meshes → 1 (${Math.round(totalBefore)} → ${Math.round(totalAfter)} tris)`,
+            trianglesBefore: Math.round(totalBefore),
+            trianglesAfter: Math.round(totalAfter),
+          });
         }
-        // Move the merged geometry from world space into the parent's
-        // local space, so it sits where the originals did.
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const invParentMatrix = (parent as any).matrixWorld.clone().invert();
-        merged.applyMatrix4(invParentMatrix);
-        // Build a replacement mesh using the same class as the source.
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const MeshCtor = group[0].constructor as any;
-        const mergedMesh = new MeshCtor(merged, material);
-        mergedMesh.name = `${group[0].name || 'merged'}_merged`;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (parent as any).add(mergedMesh);
-        // Remove originals
-        for (const m of group) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (m.parent as any)?.remove(m);
-        }
-        const totalBefore = group.reduce(
-          (sum, m) =>
-            sum +
-            (m.geometry.index
-              ? m.geometry.index.count / 3
-              : m.geometry.attributes.position.count / 3),
-          0,
-        );
-        const totalAfter = merged.index
-          ? merged.index.count / 3
-          : merged.attributes.position.count / 3;
-        for (const g of worldGeos) g.dispose();
-        changes.push({
-          kind: 'merge',
-          detail: `${mergedMesh.name}: ${group.length} meshes → 1 (${Math.round(totalBefore)} → ${Math.round(totalAfter)} tris)`,
-          trianglesBefore: Math.round(totalBefore),
-          trianglesAfter: Math.round(totalAfter),
-        });
       }
     }
   }
@@ -2085,7 +2091,10 @@ function loadGltf(
   });
 }
 
-function exportGltf(gltf: { scene: import('three').Object3D }): Promise<Uint8Array> {
+function exportGltf(gltf: {
+  scene: import('three').Object3D;
+  animations: import('three').AnimationClip[];
+}): Promise<Uint8Array> {
   return new Promise((resolve, reject) => {
     const exporter = new GLTFExporter();
     exporter.parse(
@@ -2115,7 +2124,7 @@ function exportGltf(gltf: { scene: import('three').Object3D }): Promise<Uint8Arr
         }
       },
       (err) => reject(err instanceof Error ? err : new Error(String(err))),
-      { binary: true },
+      { animations: gltf.animations, binary: true },
     );
   });
 }
@@ -2136,16 +2145,12 @@ function makeGlbChunk(type: number, data: Uint8Array): Uint8Array {
  * Returns the list of resizes performed.
  *
  * Browser: uses an HTMLCanvasElement to downsample.
- * Node: skips (no real Image decoder; the assimp path can do it
- *       natively via maxTextureSize when exporting to FBX).
+ * Node: skips because the release build does not ship a native image scaler.
  */
 function resizeTextures(scene: import('three').Object3D, maxSize: number): OptimizeChange[] {
   const changes: OptimizeChange[] = [];
   const isBrowser = typeof __IS_BROWSER__ !== 'undefined' && __IS_BROWSER__;
   if (!isBrowser) {
-    // Mark textures with userData so the assimp FBX exporter honors
-    // the size cap. Actually assimp reads maxTextureSize from options
-    // directly, so we don't need to mark anything in the scene.
     return changes;
   }
   scene.traverse((obj) => {
@@ -2216,263 +2221,6 @@ function resizeTextures(scene: import('three').Object3D, maxSize: number): Optim
     }
   });
   return changes;
-}
-
-/**
- * Vertex-clustering decimation. Quantizes each vertex's position to
- * a 3D grid and merges vertices that fall into the same cell, then
- * drops triangles that became degenerate. Produces predictable
- * results on every mesh (unlike three.js's SimplifyModifier, which
- * fails on many real-world topologies with a "Cannot set properties
- * of undefined (setting 'NaN')" error).
- *
- * Returns the new geometry and the resulting triangle count, or
- * null if the input is unsuitable (no position attribute, no indices).
- */
-/** @deprecated Legacy diagnostic helper; production optimization uses topology-safe edge collapses. */
-export function vertexClusteringDecimate(
-  src: import('three').BufferGeometry,
-  targetTris: number,
-): CriticalVertexRepairResult | null {
-  // Only handle indexed geometries with position for now — that's
-  // what we get from glTF.
-  if (!src.index || !src.attributes.position) return null;
-  const idxArr = src.index.array;
-  const posArr = src.attributes.position.array as Float32Array;
-  const normalArr = src.attributes.normal?.array as Float32Array | undefined;
-  const uvArr = src.attributes.uv?.array as Float32Array | undefined;
-  const vCount = src.attributes.position.count;
-  const tCount = idxArr.length / 3;
-  if (tCount <= targetTris) {
-    return { geometry: src.clone(), triangleCount: tCount, restoredVertices: 0 };
-  }
-
-  // --- Step 1: compute bounding box ---
-  let minX = Infinity,
-    minY = Infinity,
-    minZ = Infinity;
-  let maxX = -Infinity,
-    maxY = -Infinity,
-    maxZ = -Infinity;
-  for (let i = 0; i < vCount; i++) {
-    const x = posArr[i * 3],
-      y = posArr[i * 3 + 1],
-      z = posArr[i * 3 + 2];
-    if (x < minX) minX = x;
-    if (x > maxX) maxX = x;
-    if (y < minY) minY = y;
-    if (y > maxY) maxY = y;
-    if (z < minZ) minZ = z;
-    if (z > maxZ) maxZ = z;
-  }
-  const sizeX = maxX - minX,
-    sizeY = maxY - minY,
-    sizeZ = maxZ - minZ;
-  const diag = Math.sqrt(sizeX * sizeX + sizeY * sizeY + sizeZ * sizeZ);
-  if (diag === 0) {
-    return { geometry: src.clone(), triangleCount: tCount, restoredVertices: 0 };
-  }
-
-  // --- Step 2: binary search the cell size that hits `targetTris`. ---
-  // The relationship is monotonic: bigger cell → fewer triangles.
-  // We start with an upper bound (whole bbox) and search downward.
-  //
-  // Two-pass merging:
-  //   1. Group vertices by quantized position cell.
-  //   2. Within each cell, only merge vertices whose UVs are within
-  //      `uvTolerance` of the representative. This preserves UV
-  //      seams (cube corners, sharp texture edges) while still
-  //      merging smooth-surface vertices that share UVs.
-  //
-  // UV tolerance is set to 5% of the UV range — that's 100 px on a
-  // 2048 texture, 50 px on a 1024, etc. Small enough that the seam
-  // stays invisible, large enough to allow meaningful decimation on
-  // meshes whose UVs vary continuously (sphere, organic shapes).
-  function tryCellSize(cell: number): { remap: Int32Array; newVerts: number; keptTris: number } {
-    const uvTolerance = 0.05;
-    const normTolerance = 0.05;
-
-    // Pass 1: group by position cell.
-    const cellMap = new Map<string, number[]>();
-    for (let i = 0; i < vCount; i++) {
-      const x = posArr[i * 3],
-        y = posArr[i * 3 + 1],
-        z = posArr[i * 3 + 2];
-      const k = `${Math.floor((x - minX) / cell)}|${Math.floor((y - minY) / cell)}|${Math.floor((z - minZ) / cell)}`;
-      let arr = cellMap.get(k);
-      if (!arr) {
-        arr = [];
-        cellMap.set(k, arr);
-      }
-      arr.push(i);
-    }
-
-    // Pass 2: within each cell, greedily merge into a representative
-    // if attributes are similar enough. The representative is the
-    // first vertex in the cell.
-    const remap = new Int32Array(vCount);
-    // For each cell we track the [repIndex, ...] and the rep's
-    // attributes, so subsequent vertices can compare.
-    const cellRepresentatives = new Map<
-      string,
-      { rep: number; repU: number; repV: number; repNX: number; repNY: number; repNZ: number }
-    >();
-    let nextNewIdx = 0;
-    for (const [cellKey, indices] of cellMap) {
-      for (const i of indices) {
-        const rep = cellRepresentatives.get(cellKey);
-        if (!rep) {
-          // First vertex in this cell — becomes the representative.
-          const u = uvArr ? uvArr[i * 2] : 0;
-          const v = uvArr ? uvArr[i * 2 + 1] : 0;
-          const nx = normalArr ? normalArr[i * 3] : 0;
-          const ny = normalArr ? normalArr[i * 3 + 1] : 0;
-          const nz = normalArr ? normalArr[i * 3 + 2] : 0;
-          cellRepresentatives.set(cellKey, {
-            rep: nextNewIdx,
-            repU: u,
-            repV: v,
-            repNX: nx,
-            repNY: ny,
-            repNZ: nz,
-          });
-          remap[i] = nextNewIdx;
-          nextNewIdx++;
-          continue;
-        }
-        // Compare to representative.
-        const u = uvArr ? uvArr[i * 2] : 0;
-        const v = uvArr ? uvArr[i * 2 + 1] : 0;
-        const nx = normalArr ? normalArr[i * 3] : 0;
-        const ny = normalArr ? normalArr[i * 3 + 1] : 0;
-        const nz = normalArr ? normalArr[i * 3 + 2] : 0;
-        const dU = Math.abs(u - rep.repU);
-        const dV = Math.abs(v - rep.repV);
-        const dN = Math.sqrt((nx - rep.repNX) ** 2 + (ny - rep.repNY) ** 2 + (nz - rep.repNZ) ** 2);
-        if (uvArr && (dU > uvTolerance || dV > uvTolerance)) {
-          // UVs are too different — make this a new representative
-          // (still in the same cell, so no double-position issue, but
-          // a separate UV island).
-          cellRepresentatives.set(cellKey, {
-            rep: nextNewIdx,
-            repU: u,
-            repV: v,
-            repNX: nx,
-            repNY: ny,
-            repNZ: nz,
-          });
-          remap[i] = nextNewIdx;
-          nextNewIdx++;
-        } else if (normalArr && dN > normTolerance) {
-          // Normals differ too much — separate vertex.
-          cellRepresentatives.set(cellKey, {
-            rep: nextNewIdx,
-            repU: u,
-            repV: v,
-            repNX: nx,
-            repNY: ny,
-            repNZ: nz,
-          });
-          remap[i] = nextNewIdx;
-          nextNewIdx++;
-        } else {
-          // Close enough — merge into the representative.
-          remap[i] = rep.rep;
-        }
-      }
-    }
-    const newVerts = nextNewIdx;
-    let keptTris = 0;
-    for (let i = 0; i < tCount; i++) {
-      const a = remap[idxArr[i * 3]];
-      const b = remap[idxArr[i * 3 + 1]];
-      const c = remap[idxArr[i * 3 + 2]];
-      if (a === b || b === c || a === c) continue;
-      keptTris++;
-    }
-    return { remap, newVerts, keptTris };
-  }
-
-  // Find a cell size that gets us close to target. We accept anything
-  // between 50% and 100% of target (over-decimation is uglier than
-  // slight under-decimation).
-  let lo = diag / 1e4; // very fine → no merging
-  let hi = diag; // very coarse → everything merges to one cell
-  let best: { remap: Int32Array; newVerts: number; keptTris: number; cell: number } | null = null;
-  for (let iter = 0; iter < 20; iter++) {
-    const mid = (lo + hi) / 2;
-    const r = tryCellSize(mid);
-    if (r.keptTris <= targetTris) {
-      best = { ...r, cell: mid };
-      hi = mid;
-    } else {
-      lo = mid;
-    }
-    if (Math.abs(lo - hi) < diag * 1e-5) break;
-  }
-  // If even the coarsest cell didn't get us under target, the mesh is
-  // pathologically sparse — fall back to the coarsest result.
-  if (!best) {
-    const r = tryCellSize(hi);
-    best = { ...r, cell: hi };
-  }
-
-  // --- Step 3: build the new vertex array using the best cell size ---
-  // For each grid cell, keep the FIRST vertex's attributes (position,
-  // normal, uv). Subsequent vertices in the same cell are mapped to
-  // the kept vertex.
-  const remap = best.remap;
-  const newVerts = best.newVerts;
-  const newPositions = new Array<number>(newVerts * 3);
-  const newNormals = normalArr ? new Array<number>(newVerts * 3) : null;
-  const newUvs = uvArr ? new Array<number>(newVerts * 2) : null;
-  // Walk the original vertex array in order; the first time we see a
-  // grid cell, record its attributes under the cell's new index.
-  const seen = new Uint8Array(newVerts);
-  for (let i = 0; i < vCount; i++) {
-    const newIdx = remap[i];
-    if (seen[newIdx]) continue;
-    seen[newIdx] = 1;
-    newPositions[newIdx * 3] = posArr[i * 3];
-    newPositions[newIdx * 3 + 1] = posArr[i * 3 + 1];
-    newPositions[newIdx * 3 + 2] = posArr[i * 3 + 2];
-    if (newNormals) {
-      newNormals[newIdx * 3] = normalArr![i * 3];
-      newNormals[newIdx * 3 + 1] = normalArr![i * 3 + 1];
-      newNormals[newIdx * 3 + 2] = normalArr![i * 3 + 2];
-    }
-    if (newUvs) {
-      newUvs[newIdx * 2] = uvArr![i * 2];
-      newUvs[newIdx * 2 + 1] = uvArr![i * 2 + 1];
-    }
-  }
-
-  // --- Step 4: rewrite the index buffer, drop degenerate triangles ---
-  const finalIdx: number[] = [];
-  for (let i = 0; i < tCount; i++) {
-    const a = remap[idxArr[i * 3]];
-    const b = remap[idxArr[i * 3 + 1]];
-    const c = remap[idxArr[i * 3 + 2]];
-    if (a === b || b === c || a === c) continue;
-    finalIdx.push(a, b, c);
-  }
-  if (finalIdx.length === 0) return null;
-  const keptTris = finalIdx.length / 3;
-
-  // --- Step 5: assemble the new BufferGeometry. ---
-  // We construct a fresh BufferGeometry with explicit BufferAttribute
-  // instances. The cloned source might carry InterleavedBufferAttribute
-  // (which has `data`, not `array`) and that breaks GLTFExporter.
-  const newGeo = new BufferGeometry();
-  newGeo.setAttribute('position', new BufferAttribute(new Float32Array(newPositions), 3));
-  if (newNormals) {
-    newGeo.setAttribute('normal', new BufferAttribute(new Float32Array(newNormals), 3));
-  }
-  if (newUvs) {
-    newGeo.setAttribute('uv', new BufferAttribute(new Float32Array(newUvs), 2));
-  }
-  newGeo.setIndex(new BufferAttribute(new Uint32Array(finalIdx), 1));
-  return finishDecimation(src, { geometry: newGeo, triangleCount: keptTris }, targetTris);
 }
 
 /**

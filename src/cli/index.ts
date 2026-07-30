@@ -6,7 +6,9 @@ import { performance } from 'node:perf_hooks';
 import { cpus } from 'node:os';
 import JSZip from 'jszip';
 import {
+  getMaxInputBytes,
   INPUT_FORMATS,
+  InputTooLargeError,
   OUTPUT_FORMATS,
   isSupportedInputName,
   outputFilename,
@@ -17,6 +19,8 @@ import {
   type OutputFormat,
 } from '../core/index.js';
 
+declare const __MODELSHIFT_VERSION__: string;
+
 const program = new Command();
 const inputList = INPUT_FORMATS.map((format) => `.${format.extension}`).join(', ');
 const outputList = OUTPUT_FORMATS.map((format) => format.id).join(', ');
@@ -24,29 +28,18 @@ const outputList = OUTPUT_FORMATS.map((format) => format.id).join(', ');
 program
   .name('modelshift')
   .description('Offline conversion between mainstream 3D asset formats.')
+  .version(__MODELSHIFT_VERSION__)
   .argument('<inputs...>', `One or more files or directories (${inputList})`)
   .option('-f, --format <format>', `Output format: ${outputList}`, 'fbx')
   .option('-o, --output <dir>', 'Output directory (default: same directory as each input)')
   .option('-r, --recursive', 'Recurse into subdirectories', false)
   .option('--parallel <n>', 'Concurrent conversions (default: CPU count - 1, max 8)', Number)
-  .option('--no-embed-textures', 'Keep textures as companion files when supported')
-  .option('--scale <n>', 'Apply uniform scale (default: 1)', Number)
-  .option('--axis <axis>', 'Output axis (y-up|z-up)', 'y-up')
   .option('--json', 'Emit a JSON sidecar per asset with stats', false)
   .option('--zip', 'Pack successful outputs into modelshift.zip', false)
   .option('-v, --verbose', 'Verbose per-file progress to stderr', false)
-  .option('--target-engine <engine>', 'Engine preset (auto|unity|unreal|godot)', 'auto')
-  .option(
-    '--max-texture-size <px>',
-    'Maximum texture dimension; 8192 disables resizing',
-    Number,
-    8192,
-  )
   .option('--max-triangles <n>', 'Triangle cap per mesh; 0 disables decimation', Number, 0)
   .option('--merge-by-material', 'Merge meshes sharing a material', false)
   .option('--generate-lods <n>', 'Generate N additional LOD levels', Number, 0)
-  .option('--animation <filter>', 'Animation filter (all|skeletal|none)', 'all')
-  .option('--no-morph', 'Skip morph targets')
   .showHelpAfterError();
 
 program.parse(process.argv);
@@ -63,26 +56,11 @@ function validateOptions(): void {
   ) {
     program.error('--parallel must be an integer from 1 to 8.');
   }
-  if (!Number.isFinite(opts.scale ?? 1) || (opts.scale ?? 1) <= 0) {
-    program.error('--scale must be a positive number.');
-  }
   if (!Number.isInteger(opts.maxTriangles) || opts.maxTriangles < 0) {
     program.error('--max-triangles must be a non-negative integer.');
   }
   if (!Number.isInteger(opts.generateLods) || opts.generateLods < 0 || opts.generateLods > 8) {
     program.error('--generate-lods must be an integer from 0 to 8.');
-  }
-  if (![256, 512, 1024, 2048, 4096, 8192].includes(opts.maxTextureSize)) {
-    program.error('--max-texture-size must be one of 256, 512, 1024, 2048, 4096, or 8192.');
-  }
-  if (!['y-up', 'z-up'].includes(opts.axis)) {
-    program.error('--axis must be either y-up or z-up.');
-  }
-  if (!['auto', 'unity', 'unreal', 'godot'].includes(opts.targetEngine)) {
-    program.error('--target-engine must be one of auto, unity, unreal, or godot.');
-  }
-  if (!['all', 'skeletal', 'none'].includes(opts.animation)) {
-    program.error('--animation must be one of all, skeletal, or none.');
   }
 }
 validateOptions();
@@ -139,6 +117,7 @@ async function collectJobs(paths: string[], recursive: boolean): Promise<FileJob
 
 function referencesFrom(name: string, data: Uint8Array): string[] {
   const extension = extname(name).toLowerCase();
+  if (!['.gltf', '.obj', '.mtl', '.dae'].includes(extension)) return [];
   const text = new TextDecoder().decode(data);
   if (extension === '.gltf') {
     try {
@@ -172,6 +151,8 @@ function referencesFrom(name: string, data: Uint8Array): string[] {
 
 async function loadAssetFiles(inputPath: string): Promise<AssetFile[]> {
   const root = dirname(inputPath);
+  const byteLimit = getMaxInputBytes();
+  let loadedBytes = 0;
   const queue = [inputPath];
   const seen = new Set<string>();
   const files: AssetFile[] = [];
@@ -180,11 +161,27 @@ async function loadAssetFiles(inputPath: string): Promise<AssetFile[]> {
     const key = path.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
+    const fileInfo = await stat(path);
+    const projectedBytes = loadedBytes + fileInfo.size;
+    if (projectedBytes > byteLimit) {
+      throw new InputTooLargeError(projectedBytes, byteLimit);
+    }
     const data = new Uint8Array(await readFile(path));
+    loadedBytes += data.byteLength;
+    if (loadedBytes > byteLimit) {
+      throw new InputTooLargeError(loadedBytes, byteLimit);
+    }
     const virtualName = relative(root, path).replace(/\\/g, '/');
     files.push({ name: virtualName, data });
     for (const uri of referencesFrom(path, data)) {
-      const reference = resolve(dirname(path), decodeURIComponent(uri));
+      let decodedUri: string;
+      try {
+        decodedUri = decodeURIComponent(uri);
+      } catch {
+        if (opts.verbose) console.error(`    invalid companion path: ${uri}`);
+        continue;
+      }
+      const reference = resolve(dirname(path), decodedUri);
       if (
         await stat(reference)
           .then((value) => value.isFile())
@@ -224,13 +221,9 @@ async function runJob(job: FileJob, index: number, total: number): Promise<JobRe
     const convertOptions = {
       outputFormat,
       name: job.name,
-      targetEngine: opts.targetEngine,
-      embedTextures: opts.embedTextures !== false,
-      maxTextureSize: opts.maxTextureSize,
-      scale: opts.scale,
-      axis: opts.axis,
-      animationFilter: opts.animation,
-      morphTargets: opts.morph !== false,
+      // Node builds intentionally preserve texture bytes; resizing requires
+      // the browser's canvas-backed image pipeline.
+      maxTextureSize: 8192,
       maxTriangles: opts.maxTriangles,
       mergeByMaterial: Boolean(opts.mergeByMaterial),
       generateLODs: opts.generateLods,

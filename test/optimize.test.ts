@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { NodeIO } from '@gltf-transform/core';
+import { Document, NodeIO } from '@gltf-transform/core';
 import {
   BufferAttribute,
   BufferGeometry,
@@ -14,8 +14,11 @@ import {
   edgeCollapseDecimate,
   generateLodGeometries,
   meshoptDecimate,
+  optimizeGltf,
   restoreCriticalVertices,
 } from '../src/core/optimize.js';
+import { inspectGltf } from '../src/core/inspect.js';
+import { inspectGlbLodCatalog } from '../src/core/lodSelection.js';
 import { textureFilterRadius, unwrapLodGeometry } from '../src/core/lod-texture-baker.js';
 
 interface TopologyStats {
@@ -75,6 +78,89 @@ function topologyStats(geometry: BufferGeometry): TopologyStats {
 }
 
 describe('topology-safe LOD decimation', () => {
+  it('keeps generated LOD levels separate when merging by material', async () => {
+    const document = new Document();
+    document.createBuffer();
+    const positions = document
+      .createAccessor()
+      .setType('VEC3')
+      .setArray(new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]));
+    const indices = document
+      .createAccessor()
+      .setType('SCALAR')
+      .setArray(new Uint16Array([0, 1, 2]));
+    const material = document.createMaterial('shared');
+    const scene = document.createScene('Scene');
+    for (const name of ['left', 'right']) {
+      const primitive = document
+        .createPrimitive()
+        .setAttribute('POSITION', positions)
+        .setIndices(indices)
+        .setMaterial(material);
+      const mesh = document.createMesh(name).addPrimitive(primitive);
+      scene.addChild(document.createNode(name).setMesh(mesh));
+    }
+
+    const source = await new NodeIO().writeBinary(document);
+    const optimized = await optimizeGltf(source, {
+      generateLODs: 1,
+      mergeByMaterial: true,
+      maxTextureSize: 8192,
+    });
+    const catalog = inspectGlbLodCatalog({ name: 'merged.glb', data: optimized.data });
+
+    expect(catalog.availableLods).toEqual([0, 1]);
+    expect(catalog.levels.map((level) => level.meshes)).toEqual([1, 1]);
+    expect(optimized.changes.filter((change) => change.kind === 'merge')).toHaveLength(2);
+  });
+
+  it('preserves animations through an optimization export', async () => {
+    const document = new Document();
+    document.createBuffer();
+    const positions = document
+      .createAccessor()
+      .setType('VEC3')
+      .setArray(new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]));
+    const indices = document
+      .createAccessor()
+      .setType('SCALAR')
+      .setArray(new Uint16Array([0, 1, 2]));
+    const mesh = document
+      .createMesh('animated')
+      .addPrimitive(
+        document.createPrimitive().setAttribute('POSITION', positions).setIndices(indices),
+      );
+    const node = document.createNode('animated').setMesh(mesh);
+    document.createScene('Scene').addChild(node);
+    const sampler = document
+      .createAnimationSampler()
+      .setInput(
+        document
+          .createAccessor()
+          .setType('SCALAR')
+          .setArray(new Float32Array([0, 1])),
+      )
+      .setOutput(
+        document
+          .createAccessor()
+          .setType('VEC3')
+          .setArray(new Float32Array([0, 0, 0, 1, 0, 0])),
+      );
+    const channel = document
+      .createAnimationChannel()
+      .setSampler(sampler)
+      .setTargetNode(node)
+      .setTargetPath('translation');
+    document.createAnimation('Move').addSampler(sampler).addChannel(channel);
+    const source = await new NodeIO().writeBinary(document);
+    const optimized = await optimizeGltf(source, {
+      generateLODs: 1,
+      maxTextureSize: 8192,
+    });
+
+    expect((await inspectGltf(optimized.data)).animations).toBe(1);
+  });
+
   it('adds bounded source-footprint filtering only when an LOD atlas downsamples a texture', () => {
     expect(textureFilterRadius(1024, 1024, 1024, 1024)).toBe(0);
     expect(textureFilterRadius(2048, 2048, 1024, 1024)).toBe(0.5);
@@ -379,7 +465,7 @@ describe('topology-safe LOD decimation', () => {
   }, 30000);
 
   it('continues reducing the potion asset through every requested LOD', async () => {
-    const path = resolve(process.cwd(), 'resources', 'potion.glb');
+    const path = resolve(process.cwd(), 'test', 'fixtures', 'potion.glb');
     const doc = await new NodeIO().readBinary(new Uint8Array(readFileSync(path)));
     const primitive = doc.getRoot().listMeshes()[0]?.listPrimitives()[0];
     const positions = primitive?.getAttribute('POSITION');

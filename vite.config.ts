@@ -1,10 +1,11 @@
-import { defineConfig, type Plugin } from 'vite';
+import { defineConfig, normalizePath, type Plugin } from 'vite';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createExportMiddleware } from './src/server/exportServer.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const exportRoot = resolve(__dirname, 'exports');
+const browserAssimpLoader = resolve(__dirname, 'src/client/lib/assimpLoader.browser.ts');
 
 function modelShiftExportPlugin(): Plugin {
   return {
@@ -18,20 +19,51 @@ function modelShiftExportPlugin(): Plugin {
   };
 }
 
+/**
+ * watlas ships a universal Emscripten wrapper containing an unreachable
+ * dynamic `import("module")`. Remove that Node-only bootstrap for the browser
+ * build so Rollup never needs to externalize it.
+ */
+function watlasBrowserPlugin(): Plugin {
+  const nodeEnvironment =
+    /var ENVIRONMENT_IS_NODE=typeof process=="object"&&process\.versions\?\.node&&process\.type!="renderer";/;
+  const nodeBootstrap =
+    /if\(ENVIRONMENT_IS_NODE\)\{const\{createRequire\}=await import\("module"\);var require=createRequire\(import\.meta\.url\)\}/;
+
+  return {
+    name: 'modelshift-watlas-browser',
+    enforce: 'pre',
+    transform(code, id) {
+      const cleanId = normalizePath(id.split('?')[0]);
+      if (!cleanId.endsWith('/node_modules/watlas/dist/watlas.js')) return null;
+      if (!nodeEnvironment.test(code) || !nodeBootstrap.test(code)) {
+        throw new Error('The watlas browser transform no longer matches the installed package.');
+      }
+      return {
+        code: code
+          .replace(nodeEnvironment, 'var ENVIRONMENT_IS_NODE=false;')
+          .replace(nodeBootstrap, ''),
+        map: null,
+      };
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [modelShiftExportPlugin()],
+  base: './',
+  plugins: [watlasBrowserPlugin(), modelShiftExportPlugin()],
   root: resolve(__dirname, 'src/client'),
   publicDir: resolve(__dirname, 'src/client/public'),
   resolve: {
     alias: {
+      './assimpLoaderImpl.js': browserAssimpLoader,
       '@': resolve(__dirname, 'src/client'),
       '@shared': resolve(__dirname, 'src/shared'),
       '@core': resolve(__dirname, 'src/core/index.ts'),
     },
   },
   define: {
-    // Tells the platform check in assimpLoaderImpl.ts to take the browser branch
-    // and tree-shake out the Node branch (which imports node:fs, node:vm).
+    // Remaining shared core modules use this to select browser-safe behavior.
     __IS_BROWSER__: 'true',
   },
   server: {
@@ -52,12 +84,13 @@ export default defineConfig({
     // The model worker lazy-loads the conversion/optimization core. ES output
     // supports the resulting worker chunks; Vite's IIFE default does not.
     format: 'es',
+    plugins: () => [watlasBrowserPlugin()],
   },
   build: {
     outDir: resolve(__dirname, 'dist/client'),
     emptyOutDir: true,
     target: 'es2022',
-    sourcemap: true,
+    sourcemap: false,
     cssCodeSplit: false,
     assetsInlineLimit: 8192,
     chunkSizeWarningLimit: 1500,

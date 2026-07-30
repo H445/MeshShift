@@ -16,31 +16,27 @@ async function makeCube() {
   const doc = new (await import('@gltf-transform/core')).Document();
   doc.createBuffer();
   const positions = new Float32Array([
-    -0.5, -0.5, -0.5,  0.5, -0.5, -0.5,  0.5,  0.5, -0.5, -0.5,  0.5, -0.5,
-    -0.5, -0.5,  0.5,  0.5, -0.5,  0.5,  0.5,  0.5,  0.5, -0.5,  0.5,  0.5,
+    -0.5, -0.5, -0.5, 0.5, -0.5, -0.5, 0.5, 0.5, -0.5, -0.5, 0.5, -0.5, -0.5, -0.5, 0.5, 0.5, -0.5,
+    0.5, 0.5, 0.5, 0.5, -0.5, 0.5, 0.5,
   ]);
   const normals = new Float32Array([
-    0, 0, -1,  0, 0, -1,  0, 0, -1,  0, 0, -1,
-    0, 0,  1,  0, 0,  1,  0, 0,  1,  0, 0,  1,
+    0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1,
   ]);
-  const uvs = new Float32Array([
-    0, 0,  1, 0,  1, 1,  0, 1,
-    0, 0,  1, 0,  1, 1,  0, 1,
-  ]);
+  const uvs = new Float32Array([0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1]);
   const indices = new Uint16Array([
-    0, 1, 2, 0, 2, 3,
-    4, 6, 5, 4, 7, 6,
-    0, 4, 5, 0, 5, 1,
-    1, 5, 6, 1, 6, 2,
-    2, 6, 7, 2, 7, 3,
-    3, 7, 4, 3, 4, 0,
+    0, 1, 2, 0, 2, 3, 4, 6, 5, 4, 7, 6, 0, 4, 5, 0, 5, 1, 1, 5, 6, 1, 6, 2, 2, 6, 7, 2, 7, 3, 3, 7,
+    4, 3, 4, 0,
   ]);
-  const mesh = doc.createMesh('cube')
-    .addPrimitive(doc.createPrimitive()
-      .setAttribute('POSITION', doc.createAccessor().setArray(positions).setType('VEC3'))
-      .setAttribute('NORMAL', doc.createAccessor().setArray(normals).setType('VEC3'))
-      .setAttribute('TEXCOORD_0', doc.createAccessor().setArray(uvs).setType('VEC2'))
-      .setIndices(doc.createAccessor().setArray(indices).setType('SCALAR')));
+  const mesh = doc
+    .createMesh('cube')
+    .addPrimitive(
+      doc
+        .createPrimitive()
+        .setAttribute('POSITION', doc.createAccessor().setArray(positions).setType('VEC3'))
+        .setAttribute('NORMAL', doc.createAccessor().setArray(normals).setType('VEC3'))
+        .setAttribute('TEXCOORD_0', doc.createAccessor().setArray(uvs).setType('VEC2'))
+        .setIndices(doc.createAccessor().setArray(indices).setType('SCALAR')),
+    );
   doc.createNode('Cube').setMesh(mesh);
   doc.createScene('Scene').addChild(doc.getRoot().listNodes()[0]);
   const glb = await io.writeBinary(doc);
@@ -54,39 +50,40 @@ async function makeAnimatedCube() {
   const doc = new Document();
   doc.createBuffer();
   const positions = new Float32Array([
-    -0.5, -0.5, -0.5,  0.5, -0.5, -0.5,  0.5,  0.5, -0.5, -0.5,  0.5, -0.5,
-    -0.5, -0.5,  0.5,  0.5, -0.5,  0.5,  0.5,  0.5,  0.5, -0.5,  0.5,  0.5,
+    -0.5, -0.5, -0.5, 0.5, -0.5, -0.5, 0.5, 0.5, -0.5, -0.5, 0.5, -0.5, -0.5, -0.5, 0.5, 0.5, -0.5,
+    0.5, 0.5, 0.5, 0.5, -0.5, 0.5, 0.5,
   ]);
   const normals = new Float32Array(positions.length);
-  const uvs = new Float32Array([
-    0, 0,  1, 0,  1, 1,  0, 1,
-    0, 0,  1, 0,  1, 1,  0, 1,
-  ]);
+  const uvs = new Float32Array([0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1]);
   const indices = new Uint16Array([
-    0, 1, 2, 0, 2, 3,  4, 6, 5, 4, 7, 6,
-    0, 4, 5, 0, 5, 1,  1, 5, 6, 1, 6, 2,
-    2, 6, 7, 2, 7, 3,  3, 7, 4, 3, 4, 0,
+    0, 1, 2, 0, 2, 3, 4, 6, 5, 4, 7, 6, 0, 4, 5, 0, 5, 1, 1, 5, 6, 1, 6, 2, 2, 6, 7, 2, 7, 3, 3, 7,
+    4, 3, 4, 0,
   ]);
-  const mesh = doc.createMesh('cube')
-    .addPrimitive(doc.createPrimitive()
-      .setAttribute('POSITION', doc.createAccessor().setArray(positions).setType('VEC3'))
-      .setAttribute('NORMAL', doc.createAccessor().setArray(normals).setType('VEC3'))
-      .setAttribute('TEXCOORD_0', doc.createAccessor().setArray(uvs).setType('VEC2'))
-      .setIndices(doc.createAccessor().setArray(indices).setType('SCALAR')));
+  const mesh = doc
+    .createMesh('cube')
+    .addPrimitive(
+      doc
+        .createPrimitive()
+        .setAttribute('POSITION', doc.createAccessor().setArray(positions).setType('VEC3'))
+        .setAttribute('NORMAL', doc.createAccessor().setArray(normals).setType('VEC3'))
+        .setAttribute('TEXCOORD_0', doc.createAccessor().setArray(uvs).setType('VEC2'))
+        .setIndices(doc.createAccessor().setArray(indices).setType('SCALAR')),
+    );
   const node = doc.createNode('Cube').setMesh(mesh);
   doc.createScene('Scene').addChild(node);
 
   // Rotation animation
   const times = new Float32Array([0, 1, 2]);
-  const rot = new Float32Array([
-    0, 0, 0, 1,
-    0, 0.707, 0, 0.707,
-    0, 1, 0, 0,
-  ]);
+  const rot = new Float32Array([0, 0, 0, 1, 0, 0.707, 0, 0.707, 0, 1, 0, 0]);
   const input = doc.createAccessor().setArray(times).setType('SCALAR');
   const output = doc.createAccessor().setArray(rot).setType('VEC4');
-  const sampler = doc.createAnimationSampler().setInput(input).setOutput(output).setInterpolation('LINEAR');
-  const channel = doc.createAnimationChannel()
+  const sampler = doc
+    .createAnimationSampler()
+    .setInput(input)
+    .setOutput(output)
+    .setInterpolation('LINEAR');
+  const channel = doc
+    .createAnimationChannel()
     .setSampler(sampler)
     .setTargetNode(node)
     .setTargetPath('rotation');
@@ -109,33 +106,46 @@ async function makeSkinnedCube() {
       { name: 'root', mesh: 0, skin: 0, children: [1] },
       { name: 'tip', translation: [0, 1, 0] },
     ],
-    meshes: [{
-      name: 'skinned',
-      primitives: [{
-        attributes: {
-          POSITION: 0,
-          NORMAL: 1,
-          JOINTS_0: 2,
-          WEIGHTS_0: 3,
-        },
-        indices: 4,
-      }],
-    }],
-    skins: [{
-      name: 'skin',
-      joints: [0, 1],
-      inverseBindMatrices: 5,
-    }],
+    meshes: [
+      {
+        name: 'skinned',
+        primitives: [
+          {
+            attributes: {
+              POSITION: 0,
+              NORMAL: 1,
+              JOINTS_0: 2,
+              WEIGHTS_0: 3,
+            },
+            indices: 4,
+          },
+        ],
+      },
+    ],
+    skins: [
+      {
+        name: 'skin',
+        joints: [0, 1],
+        inverseBindMatrices: 5,
+      },
+    ],
     bufferViews: [
       { buffer: 0, byteOffset: 0, byteLength: 8 * 3 * 4, target: 34962 }, // positions
       { buffer: 0, byteOffset: 96, byteLength: 8 * 3 * 4, target: 34962 }, // normals
-      { buffer: 0, byteOffset: 192, byteLength: 8 * 4, target: 34962 },    // joints
-      { buffer: 0, byteOffset: 224, byteLength: 8 * 4 * 4, target: 34962 },// weights
-      { buffer: 0, byteOffset: 352, byteLength: 36 * 2, target: 34963 },   // indices
-      { buffer: 0, byteOffset: 424, byteLength: 2 * 16 * 4 },              // inverseBind
+      { buffer: 0, byteOffset: 192, byteLength: 8 * 4, target: 34962 }, // joints
+      { buffer: 0, byteOffset: 224, byteLength: 8 * 4 * 4, target: 34962 }, // weights
+      { buffer: 0, byteOffset: 352, byteLength: 36 * 2, target: 34963 }, // indices
+      { buffer: 0, byteOffset: 424, byteLength: 2 * 16 * 4 }, // inverseBind
     ],
     accessors: [
-      { bufferView: 0, componentType: 5126, count: 8, type: 'VEC3', max: [0.5, 0.5, 0.5], min: [-0.5, -0.5, -0.5] },
+      {
+        bufferView: 0,
+        componentType: 5126,
+        count: 8,
+        type: 'VEC3',
+        max: [0.5, 0.5, 0.5],
+        min: [-0.5, -0.5, -0.5],
+      },
       { bufferView: 1, componentType: 5126, count: 8, type: 'VEC3' },
       { bufferView: 2, componentType: 5121, count: 8, type: 'VEC4' },
       { bufferView: 3, componentType: 5126, count: 8, type: 'VEC4' },
@@ -147,35 +157,46 @@ async function makeSkinnedCube() {
 
   // Build the binary blob
   const positions = new Float32Array([
-    -0.5, -0.5, -0.5,  0.5, -0.5, -0.5,  0.5,  0.5, -0.5, -0.5,  0.5, -0.5,
-    -0.5, -0.5,  0.5,  0.5, -0.5,  0.5,  0.5,  0.5,  0.5, -0.5,  0.5,  0.5,
+    -0.5, -0.5, -0.5, 0.5, -0.5, -0.5, 0.5, 0.5, -0.5, -0.5, 0.5, -0.5, -0.5, -0.5, 0.5, 0.5, -0.5,
+    0.5, 0.5, 0.5, 0.5, -0.5, 0.5, 0.5,
   ]);
   const normals = new Float32Array(8 * 3); // zeros
-  const joints = new Uint8Array([0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0]);
+  const joints = new Uint8Array([
+    0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0,
+  ]);
   const weights = new Float32Array([
-    1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0,
-    0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0,
+    1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0,
   ]);
   const indices = new Uint16Array([
-    0, 1, 2, 0, 2, 3,  4, 6, 5, 4, 7, 6,
-    0, 4, 5, 0, 5, 1,  1, 5, 6, 1, 6, 2,
-    2, 6, 7, 2, 7, 3,  3, 7, 4, 3, 4, 0,
+    0, 1, 2, 0, 2, 3, 4, 6, 5, 4, 7, 6, 0, 4, 5, 0, 5, 1, 1, 5, 6, 1, 6, 2, 2, 6, 7, 2, 7, 3, 3, 7,
+    4, 3, 4, 0,
   ]);
   const invBind = new Float32Array([
-    1, 0, 0, 0,  0, 1, 0, 0,  0, 0, 1, 0,  0, 0, 0, 1,
-    1, 0, 0, 0,  0, 1, 0, -1, 0, 0, 1, 0,  0, 0, 0, 1,
+    1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, -1, 0, 0, 1, 0, 0, 0, 0, 1,
   ]);
 
-  const total = positions.byteLength + normals.byteLength + joints.byteLength + weights.byteLength + indices.byteLength + invBind.byteLength;
+  const total =
+    positions.byteLength +
+    normals.byteLength +
+    joints.byteLength +
+    weights.byteLength +
+    indices.byteLength +
+    invBind.byteLength;
   const bin = new Uint8Array(total);
   const dv = new DataView(bin.buffer);
   let off = 0;
-  bin.set(new Uint8Array(positions.buffer), off); off += positions.byteLength;
-  bin.set(new Uint8Array(normals.buffer), off); off += normals.byteLength;
-  bin.set(joints, off); off += joints.byteLength;
-  bin.set(new Uint8Array(weights.buffer), off); off += weights.byteLength;
-  bin.set(new Uint8Array(indices.buffer), off); off += indices.byteLength;
-  bin.set(new Uint8Array(invBind.buffer), off); off += invBind.byteLength;
+  bin.set(new Uint8Array(positions.buffer), off);
+  off += positions.byteLength;
+  bin.set(new Uint8Array(normals.buffer), off);
+  off += normals.byteLength;
+  bin.set(joints, off);
+  off += joints.byteLength;
+  bin.set(new Uint8Array(weights.buffer), off);
+  off += weights.byteLength;
+  bin.set(new Uint8Array(indices.buffer), off);
+  off += indices.byteLength;
+  bin.set(new Uint8Array(invBind.buffer), off);
+  off += invBind.byteLength;
   // Update buffer length
   gltf.buffers[0].byteLength = bin.byteLength;
   // Update bufferView byteLength
@@ -203,8 +224,8 @@ async function makeSkinnedCube() {
   const glbDV = new DataView(glb.buffer);
   // GLB header
   glbDV.setUint32(0, 0x46546c67, true); // 'glTF'
-  glbDV.setUint32(4, 2, true);          // version
-  glbDV.setUint32(8, totalLen, true);   // total length
+  glbDV.setUint32(4, 2, true); // version
+  glbDV.setUint32(8, totalLen, true); // total length
   // JSON chunk
   glbDV.setUint32(12, jsonPadded.length, true);
   glbDV.setUint32(16, 0x4e4f534a, true); // 'JSON'
@@ -252,12 +273,23 @@ async function makeSphere(latSegments = 24, lonSegments = 16) {
       indices.push(a, b, a + 1, a + 1, b, b + 1);
     }
   }
-  const mesh = doc.createMesh('sphere')
-    .addPrimitive(doc.createPrimitive()
-      .setAttribute('POSITION', doc.createAccessor().setArray(new Float32Array(positions)).setType('VEC3'))
-      .setAttribute('NORMAL', doc.createAccessor().setArray(new Float32Array(normals)).setType('VEC3'))
-      .setAttribute('TEXCOORD_0', doc.createAccessor().setArray(new Float32Array(uvs)).setType('VEC2'))
-      .setIndices(doc.createAccessor().setArray(new Uint32Array(indices)).setType('SCALAR')));
+  const mesh = doc.createMesh('sphere').addPrimitive(
+    doc
+      .createPrimitive()
+      .setAttribute(
+        'POSITION',
+        doc.createAccessor().setArray(new Float32Array(positions)).setType('VEC3'),
+      )
+      .setAttribute(
+        'NORMAL',
+        doc.createAccessor().setArray(new Float32Array(normals)).setType('VEC3'),
+      )
+      .setAttribute(
+        'TEXCOORD_0',
+        doc.createAccessor().setArray(new Float32Array(uvs)).setType('VEC2'),
+      )
+      .setIndices(doc.createAccessor().setArray(new Uint32Array(indices)).setType('SCALAR')),
+  );
   doc.createNode('Sphere').setMesh(mesh);
   doc.createScene('Scene').addChild(doc.getRoot().listNodes()[0]);
   return io.writeBinary(doc);

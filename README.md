@@ -47,13 +47,16 @@ sh ./start.sh --port 5180 --host 0.0.0.0 --open
 
 `pnpm dev` remains available as a package-manager alias for the same shared launcher.
 
-Build both surfaces:
+Build every release surface:
 
 ```bash
 pnpm build
 ```
 
-The production web app is written to `dist/client/`. The CLI bundle is `dist/cli/modelshift.mjs`. Use `pnpm preview` when testing the production build locally so the `exports/` writer remains available.
+The reusable Node API is written to `dist/core/`, the CLI bundle is
+`dist/cli/modelshift.mjs`, and the production web app is written to
+`dist/client/`. Use `pnpm preview` when testing the production build locally so
+the `exports/` writer remains available.
 
 ## Export destination
 
@@ -93,9 +96,9 @@ Important options:
 -o, --output <dir>      Output directory
 -r, --recursive         Recurse into input directories
 --parallel <n>          1–8 concurrent conversions
+-V, --version           Print the installed ModelShift version
 --json                  Write conversion statistics
 --zip                   Package successful outputs
---max-texture-size <n>  Resize textures during the optional GLB optimization pass
 --max-triangles <n>     Mesh triangle cap
 --merge-by-material     Merge meshes sharing a material
 --generate-lods <n>     Generate additional LOD levels
@@ -106,7 +109,7 @@ Exit codes are `0` for success, `1` for invalid/no input, `2` when every convers
 ## Core API
 
 ```ts
-import { convertAsset } from './src/core/index.js';
+import { convertAsset } from 'modelshift';
 
 const result = await convertAsset(
   [
@@ -148,7 +151,13 @@ The loading panel reports each of those stages and remains animated during long 
 
 **Convert selected** uses that same output-viewer progress panel for source preparation, optimization, format export, validation, and final rendering. The complete conversion pipeline runs in a dedicated worker, so native Assimp work, Meshopt passes, LOD construction, texture processing, and export serialization do not occupy the page’s UI thread. Batch conversions run one model at a time to keep several large model buffers from accumulating in memory.
 
-When **Generate optimized preview** has already produced a model with the current geometry, texture, engine, and LOD settings, conversion exports directly from that cached optimized GLB. ModelShift does not repeat normalization or optimization. Changing only the output format or other export-only settings keeps the cached model valid; changing the source or an optimization setting invalidates it. The converted output viewer also renders from this prepared GLB, avoiding a second import round trip through the exported format.
+When **Generate optimized preview** has already produced a model with the current
+geometry, texture, and LOD settings, conversion exports directly from that
+cached optimized GLB. ModelShift does not repeat normalization or optimization.
+Changing only the output format keeps the cached model valid; changing the
+source or an optimization setting invalidates it. The converted output viewer
+also renders from this prepared GLB, avoiding a second import round trip through
+the exported format.
 
 When more than one LOD is available, every row in the **Files** list shows `LOD0`, `LOD1`, and deeper save toggles. These are per-object: each converted file keeps only its checked levels. The matching controls beside the Files heading toggle a level globally across the full batch. Changing the LOD selection on a completed row returns that row to **Queued** so converting again safely overwrites its export with the new selection.
 
@@ -177,6 +186,7 @@ pnpm typecheck
 pnpm lint
 pnpm test
 pnpm build
+pnpm release:check
 ```
 
 Set `MODELSHIFT_MAX_FILE_MB` to change the default 200 MB aggregate input limit. The legacy `G2F_MAX_FILE_MB` variable is still recognized.
@@ -186,10 +196,13 @@ Set `MODELSHIFT_MAX_FILE_MB` to change the default 200 MB aggregate input limit.
 - Format conversion cannot create features the destination format does not support.
 - OBJ, STL, PLY, and the current DAE writer do not contain skeletal animation or morph animation.
 - Assimp has partial support for some animation/material combinations; verify production assets in the target engine or DCC.
+- Texture resizing and LOD texture baking require the browser canvas pipeline. The Node API and CLI preserve unchanged embedded PNG/JPEG bytes.
 - Draco and KTX2/Basis inputs are not decoded by the current preprocessing path.
 - USD/USDZ are not exposed because this bundled Assimp build does not provide a verified import/export path for them.
 - Direct browser saving requires the local ModelShift dev or preview server; a separately hosted static build cannot write to the repository filesystem.
 
 ## License
 
-MIT
+ModelShift is MIT licensed. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
+for the licenses and exact checksums of the redistributed Assimp WebAssembly
+runtime.

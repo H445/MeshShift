@@ -818,6 +818,9 @@ body {
   font-size: 11px;
   min-width: 0;
 }
+.queue-item-convert {
+  white-space: nowrap;
+}
 .queue-item-error {
   color: var(--err);
   font-size: 12px;
@@ -842,10 +845,14 @@ body {
   padding: 0;
   transition: all 0.12s ease;
 }
-.queue-item-remove:hover {
+.queue-item-remove:not(:disabled):hover {
   background: var(--err);
   border-color: var(--err);
   color: white;
+}
+.queue-item-remove:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
 }
 .queue-item-remove:focus-visible {
   outline: 2px solid var(--accent);
@@ -1014,6 +1021,63 @@ body {
   }
   .queue-item-remove {
     grid-area: remove;
+  }
+  .queue-item-actions {
+    flex-wrap: wrap;
+  }
+}
+
+@media (min-width: 761px) {
+  .queue-header {
+    gap: 10px;
+    padding: 5px 12px;
+  }
+  .queue-header h2 {
+    gap: 6px;
+    font-size: 12px;
+  }
+  .queue-header-left {
+    gap: 8px;
+  }
+  .queue-master-check,
+  .queue-master-check input[type='checkbox'] {
+    width: 16px;
+    height: 16px;
+  }
+  .queue-count {
+    min-width: 20px;
+    padding: 1px 6px;
+    font-size: 10px;
+  }
+  .queue-actions {
+    gap: 4px;
+  }
+  .queue-header .btn {
+    min-height: 28px;
+    padding: 4px 9px;
+    font-size: 12px;
+  }
+  .queue-global-lods {
+    padding-left: 8px;
+  }
+  .queue-item {
+    min-height: 32px;
+    gap: 8px;
+    padding: 3px 12px;
+  }
+  .queue-item-info {
+    column-gap: 8px;
+  }
+  .queue-item-name,
+  .queue-item-meta {
+    line-height: 1.2;
+  }
+  .queue-item-actions {
+    gap: 4px;
+  }
+  .queue-item-actions .btn {
+    min-height: 24px;
+    padding: 2px 6px;
   }
 }
 
@@ -1213,6 +1277,77 @@ body {
   }
   .toast-progress {
     min-width: 0;
+  }
+}
+
+@media (min-width: 721px) {
+  #app {
+    grid-template-rows: 32px minmax(0, 1fr) auto;
+  }
+  .topbar {
+    padding-inline: 10px;
+  }
+  .brand {
+    gap: 6px;
+    font-size: 12px;
+    line-height: 1;
+  }
+  .brand svg {
+    width: 16px;
+    height: 16px;
+  }
+  .topbar-actions {
+    gap: 2px;
+  }
+  .topbar .menu-btn {
+    height: 24px;
+    padding-inline: 6px;
+    font-size: 11px;
+    line-height: 1;
+  }
+  .topbar .icon-btn {
+    width: 24px;
+    height: 24px;
+  }
+  .topbar .icon-btn svg {
+    width: 16px;
+    height: 16px;
+  }
+  .pane-header {
+    flex-basis: 28px;
+    height: 28px;
+    gap: 6px;
+    padding: 2px 10px;
+    line-height: 1;
+  }
+  .pane-header h2 {
+    font-size: 11px;
+  }
+  .pane-sub {
+    font-size: 10px;
+  }
+  .pane-header .lod-selector {
+    gap: 4px;
+    font-size: 10px;
+  }
+  .pane-header .lod-selector-label {
+    font-size: 9px;
+  }
+  .pane-header .lod-slider-host {
+    gap: 5px;
+  }
+  .pane-header .lod-slider {
+    height: 16px;
+  }
+  .pane-header .lod-slider-value {
+    min-width: 76px;
+    padding: 2px 6px;
+    font-size: 10px;
+    line-height: 1.2;
+  }
+  .settings-panel {
+    top: 32px;
+    height: calc(100% - 32px);
   }
 }
 

@@ -1,19 +1,13 @@
 /**
- * Optimization profile panel. Profiles own the target engine and mesh/LOD
- * controls so the preview and export paths always consume one shared setup.
+ * Optimization profile panel. Profiles own the mesh/LOD controls so the
+ * preview and export paths always consume one shared setup.
  */
-import {
-  DEFAULT_LOD_TRIANGLE_RATIOS,
-  type ConvertOptions,
-  type TargetEngine,
-} from '../../shared/options.js';
+import { DEFAULT_LOD_TRIANGLE_RATIOS, type ConvertOptions } from '../../shared/options.js';
 
 const PROFILE_STORAGE_KEY = 'modelshift.profile.v1';
 const PREVIOUS_PROFILE_STORAGE_KEY = 'modelshift-3d.profile.v1';
 const LEGACY_PROFILE_STORAGE_KEY = 'gltf-to-fbx.profile.v1';
 const LEGACY_SETTINGS_STORAGE_KEY = 'gltf-to-fbx.settings.v1';
-const TARGET_ENGINES: TargetEngine[] = ['auto', 'unity', 'unreal', 'godot'];
-
 export interface ProfilesHandle {
   read(): ConvertOptions;
   onChange(callback: (options: ConvertOptions) => void): () => void;
@@ -24,7 +18,6 @@ export function createProfiles(): ProfilesHandle {
   const panel = document.getElementById('profiles-panel') as HTMLElement;
   const openBtn = document.getElementById('profiles-btn') as HTMLButtonElement;
   const closeBtn = document.getElementById('profiles-close-btn') as HTMLButtonElement;
-  const engineEl = document.getElementById('profile-engine') as HTMLSelectElement;
   const maxTrisEl = document.getElementById('profile-max-tris') as HTMLInputElement;
   const mergeEl = document.getElementById('profile-merge') as HTMLInputElement;
   const lodsEl = document.getElementById('profile-lods') as HTMLSelectElement;
@@ -41,7 +34,6 @@ export function createProfiles(): ProfilesHandle {
   function readControls(): ConvertOptions {
     const targets = readTargets();
     return {
-      targetEngine: (engineEl.value as TargetEngine) || 'auto',
       maxTriangles: Math.max(0, Math.floor(Number(maxTrisEl.value) || 0)),
       mergeByMaterial: mergeEl.checked,
       generateLODs: Math.max(0, Math.min(4, Number(lodsEl.value) || 0)),
@@ -62,12 +54,6 @@ export function createProfiles(): ProfilesHandle {
       const saved = JSON.parse(raw) as Partial<ConvertOptions> | null;
       if (!saved || typeof saved !== 'object') return;
 
-      if (
-        typeof saved.targetEngine === 'string' &&
-        TARGET_ENGINES.includes(saved.targetEngine as TargetEngine)
-      ) {
-        engineEl.value = saved.targetEngine;
-      }
       if (
         typeof saved.maxTriangles === 'number' &&
         Number.isFinite(saved.maxTriangles) &&
@@ -121,7 +107,6 @@ export function createProfiles(): ProfilesHandle {
   updateTargetPlaceholders();
 
   const controls: Array<HTMLInputElement | HTMLSelectElement> = [
-    engineEl,
     maxTrisEl,
     mergeEl,
     lodsEl,

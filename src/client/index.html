@@ -473,10 +473,6 @@
               </select>
             </label>
             <label class="setting">
-              <span>Embed textures</span>
-              <input type="checkbox" id="opt-embed" checked />
-            </label>
-            <label class="setting">
               <span>Max texture size</span>
               <select id="opt-max-tex">
                 <option value="256">256 px</option>
@@ -486,29 +482,6 @@
                 <option value="4096">4096 px</option>
                 <option value="8192">8192 px (no resize)</option>
               </select>
-            </label>
-            <label class="setting">
-              <span>Scale</span>
-              <input type="number" id="opt-scale" min="0.01" step="0.01" value="1" />
-            </label>
-            <label class="setting">
-              <span>Axis</span>
-              <select id="opt-axis">
-                <option value="y-up" selected>Y-up</option>
-                <option value="z-up">Z-up</option>
-              </select>
-            </label>
-            <label class="setting">
-              <span>Animations</span>
-              <select id="opt-anim">
-                <option value="all" selected>All</option>
-                <option value="skeletal">Skeletal only</option>
-                <option value="none">None</option>
-              </select>
-            </label>
-            <label class="setting">
-              <span>Morph targets</span>
-              <input type="checkbox" id="opt-morph" checked />
             </label>
           </div>
         </div>
@@ -526,19 +499,6 @@
           <button class="icon-btn" id="profiles-close-btn" aria-label="Close">×</button>
         </header>
         <div class="settings-body">
-          <div class="settings-section">
-            <div class="settings-section-title">Target engine</div>
-            <label class="setting">
-              <span>Engine preset</span>
-              <select id="profile-engine">
-                <option value="auto" selected>Auto</option>
-                <option value="unity">Unity</option>
-                <option value="unreal">Unreal Engine</option>
-                <option value="godot">Godot</option>
-              </select>
-            </label>
-          </div>
-
           <div class="settings-section">
             <div class="settings-section-title">Mesh optimization</div>
             <label class="setting">

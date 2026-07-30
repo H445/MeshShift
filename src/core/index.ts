@@ -31,7 +31,7 @@ export { optimizeGltf, type OptimizeResult, type OptimizeChange } from './optimi
 
 const DEFAULT_MAX_INPUT_BYTES = 200 * 1024 * 1024;
 
-function maxInputBytes(): number {
+export function getMaxInputBytes(): number {
   const configuredMb =
     typeof process !== 'undefined' && process.env
       ? (process.env.MODELSHIFT_MAX_FILE_MB ?? process.env.G2F_MAX_FILE_MB)
@@ -95,7 +95,7 @@ export async function convertAsset(
 
   const primaryName = options.name ?? files[0].name;
   const inputBytes = files.reduce((sum, file) => sum + byteLength(file), 0);
-  const maxBytes = maxInputBytes();
+  const maxBytes = getMaxInputBytes();
   if (!options.allowOversizedInput && inputBytes > maxBytes) {
     throw new InputTooLargeError(inputBytes, maxBytes);
   }

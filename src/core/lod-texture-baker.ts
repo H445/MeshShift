@@ -17,6 +17,8 @@ import {
 import { CENTER, MeshBVH, type HitPointInfo } from 'three-mesh-bvh';
 import * as watlas from 'watlas';
 
+declare const __IS_BROWSER__: boolean | undefined;
+
 const TEXTURE_SLOTS = [
   'map',
   'normalMap',
@@ -254,8 +256,10 @@ export async function createLodTextureBaker(
   maxTextureSize: number,
   options: LodTextureBakerOptions = {},
 ): Promise<LodTextureBaker | null> {
+  const isBrowser =
+    typeof __IS_BROWSER__ === 'boolean' ? __IS_BROWSER__ : typeof window !== 'undefined';
   if (
-    typeof document === 'undefined' ||
+    !isBrowser ||
     Array.isArray(sourceMaterial) ||
     !sourceGeometry.index ||
     !sourceGeometry.attributes.position ||

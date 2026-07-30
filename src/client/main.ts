@@ -173,7 +173,7 @@ const OPTIMIZED_PREVIEW_PHASE_LABELS: Record<ConvertPhase, string> = {
   post: 'Finalizing optimized preview…',
 };
 
-const queue = createQueue(queueHost, queueList);
+const queue = createQueue(queueList);
 interface FileRow {
   id: string;
   file: File;
@@ -203,6 +203,7 @@ let activeId: string | null = null;
 let outputPinEntryId: string | null = null;
 let inputPreviewRequest = 0;
 let outputPreviewRequest = 0;
+let conversionRunning = false;
 
 function optimizationOptionsForEntry(entry: FileRow): ConvertOptions {
   return {
@@ -1093,8 +1094,9 @@ function hideStats() {
 }
 
 // Queue controls
-queue.onConvertAll(() => convertAll());
-queue.onClear(() => clearAll());
+queue.onConvertOne((id) => {
+  void convertTargets(id);
+});
 queue.onSaveOne(async (id) => {
   const r = queue.list().find((row) => row.id === id)?.result;
   if (!r) return;
@@ -1105,7 +1107,6 @@ queue.onSaveOne(async (id) => {
     toast((error as Error).message, 'err');
   }
 });
-queue.onSaveAll(() => saveAll());
 queue.onPreviewOne((id) => {
   const r = queue.list().find((row) => row.id === id)?.result;
   if (r) previewConverted(r);
@@ -1151,42 +1152,55 @@ queue.onRemoveOne((id) => {
   }
   if (queue.list().length === 0) clearAll();
 });
-queue.onSelectionChange(({ selected, total }) => {
-  if (queueCount) queueCount.textContent = String(total);
+function syncQueueControls(
+  {
+    selected,
+    total,
+  }: {
+    selected: number;
+    total: number;
+  } = queue.selectionCounts(),
+): void {
+  queueCount.textContent = String(total);
   if (masterCheck) {
     masterCheck.checked = total > 0 && selected === total;
     masterCheck.indeterminate = selected > 0 && selected < total;
   }
-  // Reflect the current selection in the button label.
-  if (convertAllBtn) {
-    if (total === 0) {
-      convertAllBtn.textContent = 'Convert all';
-      convertAllBtn.disabled = true;
-    } else if (selected === 0) {
-      convertAllBtn.textContent = 'Convert 0';
-      convertAllBtn.disabled = true;
-    } else if (selected === total) {
-      convertAllBtn.textContent = `Convert all (${total})`;
-      convertAllBtn.disabled = false;
-    } else {
-      convertAllBtn.textContent = `Convert ${selected} of ${total}`;
-      convertAllBtn.disabled = false;
-    }
+  const eligible = queue.conversionTargets().length;
+  if (conversionRunning) {
+    convertAllBtn.textContent = 'Converting…';
+    convertAllBtn.title = 'A conversion is already in progress';
+  } else if (total === 0) {
+    convertAllBtn.textContent = 'Convert all';
+    convertAllBtn.removeAttribute('title');
+  } else if (selected === 0) {
+    convertAllBtn.textContent = 'Convert 0';
+    convertAllBtn.title = 'Select at least one file to convert';
+  } else if (eligible === 0) {
+    convertAllBtn.textContent = 'Convert all';
+    convertAllBtn.title =
+      "All selected files are converted. Use a row's Convert again button to rerun one.";
+  } else if (eligible === total) {
+    convertAllBtn.textContent = `Convert all (${total})`;
+    convertAllBtn.removeAttribute('title');
+  } else if (eligible === selected) {
+    convertAllBtn.textContent = `Convert ${selected} of ${total}`;
+    convertAllBtn.removeAttribute('title');
+  } else {
+    convertAllBtn.textContent = `Convert pending (${eligible})`;
+    convertAllBtn.title = 'Completed files will not be converted again';
   }
-  if (previewOptBtn) {
-    previewOptBtn.disabled = total === 0;
-  }
-});
+  convertAllBtn.disabled = conversionRunning || eligible === 0;
+  previewOptBtn.disabled = conversionRunning || total === 0;
+}
+
+queue.onSelectionChange(syncQueueControls);
 
 if (masterCheck) {
   masterCheck.addEventListener('change', () => {
     queue.selectAll(masterCheck.checked);
   });
 }
-
-queue.onCountChange((n) => {
-  if (queueCount) queueCount.textContent = String(n);
-});
 
 // Wireframe toggles — independent per viewer.
 function bindWireframeButton(btn: HTMLButtonElement, viewer: typeof inputViewer) {
@@ -1257,7 +1271,9 @@ bindAutoRotateButton(autoRotateInputBtn, inputViewer);
 bindAutoRotateButton(autoRotateOutputBtn, outputViewer);
 
 clearBtn.addEventListener('click', () => clearAll());
-convertAllBtn.addEventListener('click', () => convertAll());
+convertAllBtn.addEventListener('click', () => {
+  void convertTargets();
+});
 saveAllBtn.addEventListener('click', () => saveAll());
 previewOptBtn.addEventListener('click', () => generateOptimizedPreview());
 
@@ -1413,10 +1429,16 @@ function workerExportProgress(phase: ConvertPhase, pct: number): [number, string
   return [0.42, 'Preparing export…'];
 }
 
-async function convertAll() {
-  const targets = queue.selectedForConvert();
+async function convertTargets(requestedId?: string) {
+  if (conversionRunning) return;
+  const targets = queue.conversionTargets(requestedId);
   if (targets.length === 0) {
-    toast('No files selected for conversion.', 'warn');
+    toast(
+      requestedId === undefined
+        ? 'No files selected for conversion.'
+        : 'That file is already converting or no longer available.',
+      'warn',
+    );
     return;
   }
   const missingLodSelection = targets.find((row) => row.selectedLods.length === 0);
@@ -1425,6 +1447,8 @@ async function convertAll() {
     return;
   }
 
+  conversionRunning = true;
+  queue.setBusy(true);
   resetOutputPreview();
   const request = outputPreviewRequest;
   const title =
@@ -1438,197 +1462,207 @@ async function convertAll() {
   previewOptBtn.disabled = true;
   loadBtn.disabled = true;
   addMoreBtn.disabled = true;
+  saveAllBtn.disabled = true;
   if (masterCheck) masterCheck.disabled = true;
 
-  const baseOptions = readOptions();
-  const itemProgress = new Map<string, number>(targets.map((row) => [row.id, 0]));
-  const lastItemProgress = new Map<string, number>(targets.map((row) => [row.id, 0]));
-  let autoPreview:
-    | {
-        data: Uint8Array;
-        entryId: string;
-        label: string;
-        lodLevels: number[];
-      }
-    | undefined;
-  const updateItemProgress = (entry: FileRow, progress: number, detail: string): void => {
-    const monotonic = Math.max(lastItemProgress.get(entry.id) ?? 0, progress);
-    lastItemProgress.set(entry.id, monotonic);
-    itemProgress.set(entry.id, monotonic);
-    queue.update(entry.id, { progress: monotonic, phase: detail });
-    const average =
-      Array.from(itemProgress.values()).reduce((sum, value) => sum + value, 0) /
-      Math.max(1, itemProgress.size);
-    const outputDetail = targets.length === 1 ? detail : `${entry.file.name} · ${detail}`;
-    updateOutputLoading(request, Math.min(0.99, average), outputDetail);
-  };
-
-  async function runOne(id: string): Promise<void> {
-    const entry = fileRows.find((candidate) => candidate.id === id);
-    if (!entry) return;
-    const sourceFile = entry.file;
-    const options: ConvertOptions = {
-      ...baseOptions,
-      detailPins: entry.detailPins.map((pin) => ({
-        ...pin,
-        position: [...pin.position] as [number, number, number],
-      })),
+  try {
+    const baseOptions = readOptions();
+    const itemProgress = new Map<string, number>(targets.map((row) => [row.id, 0]));
+    const lastItemProgress = new Map<string, number>(targets.map((row) => [row.id, 0]));
+    let autoPreview:
+      | {
+          data: Uint8Array;
+          entryId: string;
+          label: string;
+          lodLevels: number[];
+        }
+      | undefined;
+    const updateItemProgress = (entry: FileRow, progress: number, detail: string): void => {
+      const monotonic = Math.max(lastItemProgress.get(entry.id) ?? 0, progress);
+      lastItemProgress.set(entry.id, monotonic);
+      itemProgress.set(entry.id, monotonic);
+      queue.update(entry.id, { progress: monotonic, phase: detail });
+      const average =
+        Array.from(itemProgress.values()).reduce((sum, value) => sum + value, 0) /
+        Math.max(1, itemProgress.size);
+      const outputDetail = targets.length === 1 ? detail : `${entry.file.name} · ${detail}`;
+      updateOutputLoading(request, Math.min(0.99, average), outputDetail);
     };
-    const cacheKey = optimizationOptionsKey(options);
-    try {
-      queue.update(entry.id, {
-        status: 'converting',
-        progress: 0,
-        phase: 'Preparing source…',
-      });
 
-      const normalized = await normalizedPreview(
-        entry,
-        sourceFile,
-        (pct) => updateItemProgress(entry, 0.02 + pct * 0.08, 'Reading source files…'),
-        (phase, pct) => {
-          const [progress, detail] = workerNormalizationProgress(phase, pct);
-          updateItemProgress(entry, 0.1 + progress * 0.2, detail);
-        },
-        () => updateItemProgress(entry, 0.3, 'Reusing prepared source model…'),
-        normalizeForConversion,
-      );
-      if (entry.file !== sourceFile) throw new Error('Source model changed during conversion.');
-      updateItemProgress(entry, 0.3, 'Source model ready');
-      const shouldOptimize = usesOptimization(options, normalized.stats.textureMaxSize);
-
-      let preparedData = normalized.data;
-      let optimized: OptimizeResult | undefined;
-      if (entry.optimizedPreview?.key === cacheKey) {
-        optimized = entry.optimizedPreview.result;
-        entry.detailPinsDirty = false;
-        preparedData = optimized.data;
-        updateItemProgress(entry, 0.68, 'Reusing generated optimized model…');
-      } else if (shouldOptimize) {
-        optimized = await optimizeInWorker(normalized.data, options, (phase, pct) => {
-          const [start, end] = OPTIMIZED_PREVIEW_PHASE_RANGES[phase];
-          const clamped = Math.max(0, Math.min(1, Number.isFinite(pct) ? pct : 0));
-          const progress = start + (end - start) * clamped;
-          updateItemProgress(entry, 0.3 + progress * 0.38, OPTIMIZED_PREVIEW_PHASE_LABELS[phase]);
-        });
-        if (entry.file !== sourceFile) throw new Error('Source model changed during conversion.');
-        entry.optimizedPreview = { key: cacheKey, result: optimized };
-        entry.detailPinsDirty = false;
-        preparedData = optimized.data;
-      } else {
-        updateItemProgress(entry, 0.68, 'Prepared model ready for export');
-      }
-
-      const beforeStats = queue.list().find((row) => row.id === entry.id)?.inspect;
-      if (optimized && beforeStats) {
-        updateOptimizationReport(entry, beforeStats, optimized, cacheKey);
-      }
-
-      const preparedName = `${sourceFile.name.replace(/\.[^.]+$/, '')}.glb`;
-      const exportRow = queue.list().find((row) => row.id === entry.id);
-      if (!exportRow || exportRow.selectedLods.length === 0) {
-        throw new Error('Select at least one LOD before exporting.');
-      }
-      const result = await convertInWorker(
-        [{ name: preparedName, data: preparedData }],
-        sourceFile.name,
-        options,
-        optimized?.stats ?? normalized.stats,
-        {
-          available: exportRow.availableLods,
-          selected: exportRow.selectedLods,
-        },
-        (phase, pct) => {
-          const [progress, detail] = workerExportProgress(phase, pct);
-          updateItemProgress(entry, 0.68 + progress * 0.3, detail);
-        },
-      );
-      if (entry.file !== sourceFile) throw new Error('Source model changed during conversion.');
-
-      queue.update(entry.id, {
-        status: 'done',
-        progress: 1,
-        phase: 'done',
-        result,
-      });
-      itemProgress.set(entry.id, 1);
-      lastItemProgress.set(entry.id, 1);
-      autoPreview ??= {
-        data: preparedData,
-        entryId: entry.id,
-        label: `Converted ${result.format.toUpperCase()} · ${result.filename}`,
-        lodLevels: result.lodLevels ?? exportRow.selectedLods,
+    async function runOne(id: string): Promise<void> {
+      const entry = fileRows.find((candidate) => candidate.id === id);
+      if (!entry) return;
+      const sourceFile = entry.file;
+      const options: ConvertOptions = {
+        ...baseOptions,
+        detailPins: entry.detailPins.map((pin) => ({
+          ...pin,
+          position: [...pin.position] as [number, number, number],
+        })),
       };
-    } catch (reason) {
-      const error = reason instanceof Error ? reason : new Error(String(reason));
-      queue.update(entry.id, {
-        status: 'error',
-        progress: 1,
-        errorMessage: error.message || 'Failed',
-      });
-      itemProgress.set(entry.id, 1);
-      lastItemProgress.set(entry.id, 1);
-      toast(`${sourceFile.name}: ${error.message || 'conversion failed'}`, 'err');
+      const cacheKey = optimizationOptionsKey(options);
+      try {
+        queue.update(entry.id, {
+          status: 'converting',
+          progress: 0,
+          phase: 'Preparing source…',
+          result: undefined,
+          errorMessage: undefined,
+        });
+        syncSaveAllVisibility();
+
+        const normalized = await normalizedPreview(
+          entry,
+          sourceFile,
+          (pct) => updateItemProgress(entry, 0.02 + pct * 0.08, 'Reading source files…'),
+          (phase, pct) => {
+            const [progress, detail] = workerNormalizationProgress(phase, pct);
+            updateItemProgress(entry, 0.1 + progress * 0.2, detail);
+          },
+          () => updateItemProgress(entry, 0.3, 'Reusing prepared source model…'),
+          normalizeForConversion,
+        );
+        if (entry.file !== sourceFile) throw new Error('Source model changed during conversion.');
+        updateItemProgress(entry, 0.3, 'Source model ready');
+        const shouldOptimize = usesOptimization(options, normalized.stats.textureMaxSize);
+
+        let preparedData = normalized.data;
+        let optimized: OptimizeResult | undefined;
+        if (entry.optimizedPreview?.key === cacheKey) {
+          optimized = entry.optimizedPreview.result;
+          entry.detailPinsDirty = false;
+          preparedData = optimized.data;
+          updateItemProgress(entry, 0.68, 'Reusing generated optimized model…');
+        } else if (shouldOptimize) {
+          optimized = await optimizeInWorker(normalized.data, options, (phase, pct) => {
+            const [start, end] = OPTIMIZED_PREVIEW_PHASE_RANGES[phase];
+            const clamped = Math.max(0, Math.min(1, Number.isFinite(pct) ? pct : 0));
+            const progress = start + (end - start) * clamped;
+            updateItemProgress(entry, 0.3 + progress * 0.38, OPTIMIZED_PREVIEW_PHASE_LABELS[phase]);
+          });
+          if (entry.file !== sourceFile) throw new Error('Source model changed during conversion.');
+          entry.optimizedPreview = { key: cacheKey, result: optimized };
+          entry.detailPinsDirty = false;
+          preparedData = optimized.data;
+        } else {
+          updateItemProgress(entry, 0.68, 'Prepared model ready for export');
+        }
+
+        const beforeStats = queue.list().find((row) => row.id === entry.id)?.inspect;
+        if (optimized && beforeStats) {
+          updateOptimizationReport(entry, beforeStats, optimized, cacheKey);
+        }
+
+        const preparedName = `${sourceFile.name.replace(/\.[^.]+$/, '')}.glb`;
+        const exportRow = queue.list().find((row) => row.id === entry.id);
+        if (!exportRow || exportRow.selectedLods.length === 0) {
+          throw new Error('Select at least one LOD before exporting.');
+        }
+        const result = await convertInWorker(
+          [{ name: preparedName, data: preparedData }],
+          sourceFile.name,
+          options,
+          optimized?.stats ?? normalized.stats,
+          {
+            available: exportRow.availableLods,
+            selected: exportRow.selectedLods,
+          },
+          (phase, pct) => {
+            const [progress, detail] = workerExportProgress(phase, pct);
+            updateItemProgress(entry, 0.68 + progress * 0.3, detail);
+          },
+        );
+        if (entry.file !== sourceFile) throw new Error('Source model changed during conversion.');
+
+        queue.update(entry.id, {
+          status: 'done',
+          progress: 1,
+          phase: 'done',
+          result,
+        });
+        itemProgress.set(entry.id, 1);
+        lastItemProgress.set(entry.id, 1);
+        autoPreview ??= {
+          data: preparedData,
+          entryId: entry.id,
+          label: `Converted ${result.format.toUpperCase()} · ${result.filename}`,
+          lodLevels: result.lodLevels ?? exportRow.selectedLods,
+        };
+      } catch (reason) {
+        const error = reason instanceof Error ? reason : new Error(String(reason));
+        queue.update(entry.id, {
+          status: 'error',
+          progress: 1,
+          errorMessage: error.message || 'Failed',
+        });
+        itemProgress.set(entry.id, 1);
+        lastItemProgress.set(entry.id, 1);
+        toast(`${sourceFile.name}: ${error.message || 'conversion failed'}`, 'err');
+      }
     }
-  }
 
-  // The worker serializes its native WebAssembly state. Running one model at a
-  // time also prevents several large transferable buffers from accumulating.
-  for (const target of targets) await runOne(target.id);
+    // The worker serializes its native WebAssembly state. Running one model at a
+    // time also prevents several large transferable buffers from accumulating.
+    for (const target of targets) await runOne(target.id);
 
-  const succeededTargets = targets.filter((row) => row.status === 'done' && row.result);
-  let savedExports: SavedExport[] = [];
-  let saveError: Error | undefined;
-  if (succeededTargets.length > 0) {
-    updateOutputLoading(request, 0.985, 'Saving converted files to exports/…');
-    await nextPaint();
-    try {
-      savedExports = await saveResultsToExports(succeededTargets.map((row) => row.result!));
-    } catch (error) {
-      saveError = error instanceof Error ? error : new Error(String(error));
-    }
-  }
-
-  if (autoPreview && request === outputPreviewRequest) {
-    try {
-      updateOutputLoading(request, 0.995, 'Rendering converted preview…');
+    const succeededTargets = targets.filter((row) => row.status === 'done' && row.result);
+    let savedExports: SavedExport[] = [];
+    let saveError: Error | undefined;
+    if (succeededTargets.length > 0) {
+      updateOutputLoading(request, 0.985, 'Saving converted files to exports/…');
       await nextPaint();
-      await previewGlb(autoPreview.data, autoPreview.label, request, autoPreview.lodLevels);
-      outputPinEntryId = autoPreview.entryId;
-      syncDetailPinUi();
-      updateOutputLoading(
-        request,
-        1,
-        saveError ? 'Conversion complete · save failed' : 'Conversion saved to exports/',
+      try {
+        savedExports = await saveResultsToExports(succeededTargets.map((row) => row.result!));
+      } catch (error) {
+        saveError = error instanceof Error ? error : new Error(String(error));
+      }
+    }
+
+    if (autoPreview && request === outputPreviewRequest) {
+      try {
+        updateOutputLoading(request, 0.995, 'Rendering converted preview…');
+        await nextPaint();
+        await previewGlb(autoPreview.data, autoPreview.label, request, autoPreview.lodLevels);
+        outputPinEntryId = autoPreview.entryId;
+        syncDetailPinUi();
+        updateOutputLoading(
+          request,
+          1,
+          saveError ? 'Conversion complete · save failed' : 'Conversion saved to exports/',
+        );
+        await nextPaint();
+      } catch (error) {
+        toast(`Converted preview failed: ${(error as Error).message}`, 'err');
+      }
+    }
+    syncSaveAllVisibility();
+    if (saveError) {
+      toast(`Conversion complete, but files were not saved: ${saveError.message}`, 'err');
+    } else if (succeededTargets.length === targets.length) {
+      const conversionMessage =
+        targets.length === 1 ? 'Conversion complete' : `${targets.length} conversions complete`;
+      toast(`${conversionMessage} · ${savedExportMessage(savedExports)}`, 'ok');
+    } else if (succeededTargets.length > 0) {
+      toast(
+        `${succeededTargets.length}/${targets.length} conversions complete · ${savedExportMessage(savedExports)}`,
+        'warn',
       );
-      await nextPaint();
-    } catch (error) {
-      toast(`Converted preview failed: ${(error as Error).message}`, 'err');
+    } else {
+      toast('No files converted successfully.', 'warn');
     }
-  }
-  finishOutputLoading(request);
-
-  convertAllBtn.disabled = false;
-  clearBtn.disabled = false;
-  previewOptBtn.disabled = false;
-  loadBtn.disabled = false;
-  addMoreBtn.disabled = false;
-  if (masterCheck) masterCheck.disabled = false;
-
-  syncSaveAllVisibility();
-  if (saveError) {
-    toast(`Conversion complete, but files were not saved: ${saveError.message}`, 'err');
-  } else if (succeededTargets.length === targets.length) {
-    const conversionMessage =
-      targets.length === 1 ? 'Conversion complete' : `${targets.length} conversions complete`;
-    toast(`${conversionMessage} · ${savedExportMessage(savedExports)}`, 'ok');
-  } else if (succeededTargets.length > 0) {
-    toast(
-      `${succeededTargets.length}/${targets.length} conversions complete · ${savedExportMessage(savedExports)}`,
-      'warn',
-    );
-  } else {
-    toast('No files converted successfully.', 'warn');
+  } catch (reason) {
+    const error = reason instanceof Error ? reason : new Error(String(reason));
+    toast(`Conversion failed: ${error.message}`, 'err');
+  } finally {
+    finishOutputLoading(request);
+    conversionRunning = false;
+    queue.setBusy(false);
+    clearBtn.disabled = false;
+    loadBtn.disabled = false;
+    addMoreBtn.disabled = false;
+    saveAllBtn.disabled = false;
+    if (masterCheck) masterCheck.disabled = false;
+    syncQueueControls();
   }
 }
 

@@ -50,7 +50,8 @@ describe('round-trip: FBX output is parseable by assimp', () => {
   });
 
   it('skinned-cube.glb → FBX → assjson has bones/skin', async () => {
-    const fbx = (await convertGltfToFbx(load('skinned-cube.glb'), { name: 'skinned-cube.glb' })).data;
+    const fbx = (await convertGltfToFbx(load('skinned-cube.glb'), { name: 'skinned-cube.glb' }))
+      .data;
     const scene = (await parseFbxToScene(fbx)) as AssjsonScene;
     expect((scene.meshes ?? []).length).toBeGreaterThan(0);
     // Skin/bones may be present in the scene structure
@@ -58,7 +59,8 @@ describe('round-trip: FBX output is parseable by assimp', () => {
   });
 
   it('animated-cube.glb → FBX is a valid, parseable FBX', async () => {
-    const fbx = (await convertGltfToFbx(load('animated-cube.glb'), { name: 'animated-cube.glb' })).data;
+    const fbx = (await convertGltfToFbx(load('animated-cube.glb'), { name: 'animated-cube.glb' }))
+      .data;
     // Just verify the FBX is parseable. Animation preservation in assimp's
     // FBX exporter is partial — keys may not round-trip through assjson.
     // Real-world: open the FBX in Blender to verify the animation plays.
