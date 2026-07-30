@@ -57,7 +57,7 @@ The production web app is written to `dist/client/`. The CLI bundle is `dist/cli
 
 ## Export destination
 
-The web app saves generated files directly under the repository’s `exports/` directory instead of using the browser Downloads folder. A single conversion writes its output and companion files at the root of `exports/`. **Save all** groups each converted asset into its own subdirectory to prevent companion-file name collisions.
+The web app automatically saves every successful conversion directly under the repository’s `exports/` directory instead of using the browser Downloads folder. A single conversion writes its output and companion files at the root of `exports/`. A batch conversion groups each converted asset into its own subdirectory to prevent companion-file name collisions. The **Save again** controls retry the write or overwrite the existing files.
 
 The local writer accepts only relative paths beneath `exports/`, rejects traversal and unsafe path segments, and overwrites an older file with the same path. Generated files are ignored by Git; `exports/.gitkeep` retains the empty directory in a checkout.
 

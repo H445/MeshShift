@@ -13,6 +13,7 @@ import {
   type AssetFile,
   type ConvertPhase,
   type ConvertResult,
+  type InspectResult,
   type OutputFormat,
 } from '../core/index.js';
 
@@ -215,8 +216,10 @@ function assertUniqueOutputs(jobs: FileJob[], format: OutputFormat): void {
 async function runJob(job: FileJob, index: number, total: number): Promise<JobResult> {
   const started = performance.now();
   try {
-    const { convertAsset, optimizeGltf } = await import('../core/index.js');
+    const { convertAsset, convertPreparedAsset, optimizeGltf } = await import('../core/index.js');
     let sourceFiles = await loadAssetFiles(job.inputPath);
+    let sourceIsPrepared = false;
+    let preparedStats: InspectResult | undefined;
     const outputFormat = opts.format as OutputFormat;
     const convertOptions = {
       outputFormat,
@@ -258,9 +261,17 @@ async function runJob(job: FileJob, index: number, total: number): Promise<JobRe
           data: optimized.data,
         },
       ];
+      sourceIsPrepared = true;
+      preparedStats = optimized.stats;
     }
 
-    const result = await convertAsset(sourceFiles, convertOptions);
+    const result =
+      sourceIsPrepared && preparedStats
+        ? await convertPreparedAsset(sourceFiles[0], {
+            ...convertOptions,
+            knownStats: preparedStats,
+          })
+        : await convertAsset(sourceFiles, convertOptions);
     await mkdir(job.outputDir, { recursive: true });
     const outputs: Array<{ path: string; data: Uint8Array }> = [];
     for (const file of result.files) {

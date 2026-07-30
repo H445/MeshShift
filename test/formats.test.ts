@@ -4,6 +4,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   convertAsset,
+  convertPreparedAsset,
   getAssimp,
   OUTPUT_FORMATS,
   type AssetFile,
@@ -87,6 +88,33 @@ describe('format-agnostic conversion', () => {
       await expectParseable(result);
     });
   }
+
+  it.each(['fbx', 'glb', 'gltf', 'obj', 'stl', 'ply', 'dae'] as const)(
+    'directly exports a trusted prepared GLB to %s',
+    async (outputFormat) => {
+      const result = await convertPreparedAsset(
+        { name: 'prepared.glb', data: cube },
+        {
+          name: 'prepared.glb',
+          outputFormat,
+          knownStats: {
+            meshes: 1,
+            materials: 1,
+            textures: 0,
+            animations: 0,
+            bones: 0,
+            morphTargets: 0,
+            triangles: 12,
+            vertices: 24,
+            textureMaxSize: 0,
+          },
+        },
+      );
+
+      expect(result.stats.triangles).toBe(12);
+      await expectParseable(result);
+    },
+  );
 
   it('returns OBJ and MTL as one output bundle', async () => {
     const result = await convertAsset(cube, { name: 'cube.glb', outputFormat: 'obj' });

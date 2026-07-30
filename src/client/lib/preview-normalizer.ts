@@ -36,6 +36,7 @@ export type ModelWorkerRequest =
       name: string;
       files: Array<{ name: string; data: ArrayBuffer }>;
       options: WorkerConvertOptions;
+      stats: InspectResult | ConvertStats;
     };
 
 export type ModelWorkerSuccess =
@@ -232,6 +233,7 @@ export async function convertInWorker(
   files: AssetFile[],
   name: string,
   options: WorkerConvertOptions,
+  stats: InspectResult | ConvertStats,
   onProgress?: (phase: ConvertPhase, pct: number) => void,
 ): Promise<ConvertResult> {
   const id = nextRequestId++;
@@ -247,6 +249,7 @@ export async function convertInWorker(
       name,
       files: transferableFiles,
       options,
+      stats,
     },
     transferableFiles.map((file) => file.data),
     onProgress,

@@ -1,7 +1,7 @@
 /**
  * Queue UI — list of files in the bottom panel.
  * Renders rows with per-file status, progress, checkbox (for batch opt-in),
- * click-to-preview, and save-to-exports button.
+ * click-to-preview, and retry-save-to-exports button.
  */
 import type { ConvertResult, InspectResult } from '../../shared/options.js';
 
@@ -190,8 +190,8 @@ export function createQueue(_host: HTMLElement, listEl: HTMLElement): QueueHandl
 
         const save = document.createElement('button');
         save.className = 'btn btn-primary';
-        save.textContent = 'Save';
-        save.title = 'Save converted files to the project exports folder';
+        save.textContent = 'Save again';
+        save.title = 'Save again or overwrite converted files in the project exports folder';
         save.addEventListener('click', (e) => {
           e.stopPropagation();
           handlers.saveOne(r.id);

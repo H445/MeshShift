@@ -54,7 +54,8 @@ describe('optimized preview cache', () => {
         generateLODs: 0,
       }),
     ).toBe(false);
-    expect(usesOptimization({ maxTextureSize: 2048 })).toBe(true);
+    expect(usesOptimization({ maxTextureSize: 2048 }, 2048)).toBe(false);
+    expect(usesOptimization({ maxTextureSize: 2048 }, 4096)).toBe(true);
     expect(usesOptimization({ maxTextureSize: 8192, generateLODs: 1 })).toBe(true);
   });
 });

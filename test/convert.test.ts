@@ -6,7 +6,12 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { convertGltfToFbx, convertBatch, InputTooLargeError } from '../src/core/index.js';
+import {
+  convertAsset,
+  convertGltfToFbx,
+  convertBatch,
+  InputTooLargeError,
+} from '../src/core/index.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const fixturesDir = resolve(__dirname, 'fixtures');
@@ -98,6 +103,26 @@ describe('convertGltfToFbx', () => {
       await expect(convertGltfToFbx(load('cube.glb'), { name: 'cube.glb' })).rejects.toBeInstanceOf(
         InputTooLargeError,
       );
+    } finally {
+      if (prev === undefined) delete process.env.G2F_MAX_FILE_MB;
+      else process.env.G2F_MAX_FILE_MB = prev;
+    }
+  });
+
+  it('allows trusted generated intermediates to exceed the external input cap', async () => {
+    const prev = process.env.G2F_MAX_FILE_MB;
+    process.env.G2F_MAX_FILE_MB = '0';
+    try {
+      await expect(
+        convertAsset(
+          { name: 'cube.glb', data: load('cube.glb') },
+          {
+            name: 'cube.glb',
+            outputFormat: 'fbx',
+            allowOversizedInput: true,
+          },
+        ),
+      ).resolves.toMatchObject({ filename: 'cube.fbx' });
     } finally {
       if (prev === undefined) delete process.env.G2F_MAX_FILE_MB;
       else process.env.G2F_MAX_FILE_MB = prev;

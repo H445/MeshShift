@@ -20,12 +20,7 @@ import {
 } from './lib/preview-normalizer.js';
 import { optimizationOptionsKey, usesOptimization } from './lib/optimization-cache.js';
 import { detectLods, selectLod, renderLodSelector, hideLodSelector } from './ui/lod.js';
-import type {
-  AssetFile,
-  ConvertPhase,
-  ConvertResult,
-  InspectResult,
-} from '../shared/options.js';
+import type { AssetFile, ConvertPhase, ConvertResult, InspectResult } from '../shared/options.js';
 import type { OptimizeChange, OptimizeResult } from '../core/optimize.js';
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
@@ -984,7 +979,6 @@ async function convertAll() {
 
   const options = readOptions();
   const cacheKey = optimizationOptionsKey(options);
-  const shouldOptimize = usesOptimization(options);
   const itemProgress = new Map<string, number>(targets.map((row) => [row.id, 0]));
   const lastItemProgress = new Map<string, number>(targets.map((row) => [row.id, 0]));
   let autoPreview:
@@ -1031,6 +1025,7 @@ async function convertAll() {
       );
       if (entry.file !== sourceFile) throw new Error('Source model changed during conversion.');
       updateItemProgress(entry, 0.3, 'Source model ready');
+      const shouldOptimize = usesOptimization(options, normalized.stats.textureMaxSize);
 
       let preparedData = normalized.data;
       let optimized: OptimizeResult | undefined;
@@ -1063,6 +1058,7 @@ async function convertAll() {
         [{ name: preparedName, data: preparedData }],
         sourceFile.name,
         options,
+        optimized?.stats ?? normalized.stats,
         (phase, pct) => {
           const [progress, detail] = workerExportProgress(phase, pct);
           updateItemProgress(entry, 0.68 + progress * 0.3, detail);
@@ -1099,12 +1095,29 @@ async function convertAll() {
   // time also prevents several large transferable buffers from accumulating.
   for (const target of targets) await runOne(target.id);
 
+  const succeededTargets = targets.filter((row) => row.status === 'done' && row.result);
+  let savedExports: SavedExport[] = [];
+  let saveError: Error | undefined;
+  if (succeededTargets.length > 0) {
+    updateOutputLoading(request, 0.985, 'Saving converted files to exports/…');
+    await nextPaint();
+    try {
+      savedExports = await saveResultsToExports(succeededTargets.map((row) => row.result!));
+    } catch (error) {
+      saveError = error instanceof Error ? error : new Error(String(error));
+    }
+  }
+
   if (autoPreview && request === outputPreviewRequest) {
     try {
-      updateOutputLoading(request, 0.99, 'Rendering converted preview…');
+      updateOutputLoading(request, 0.995, 'Rendering converted preview…');
       await nextPaint();
       await previewGlb(autoPreview.data, autoPreview.label, request);
-      updateOutputLoading(request, 1, 'Conversion complete');
+      updateOutputLoading(
+        request,
+        1,
+        saveError ? 'Conversion complete · save failed' : 'Conversion saved to exports/',
+      );
       await nextPaint();
     } catch (error) {
       toast(`Converted preview failed: ${(error as Error).message}`, 'err');
@@ -1123,16 +1136,17 @@ async function convertAll() {
   if (succeeded.length > 1 || succeeded.some((row) => (row.result?.files.length ?? 0) > 1)) {
     queue.showSaveAllButton(true);
   }
-  const succeededTargets = targets.filter((row) =>
-    queue.list().some((item) => item.id === row.id && item.status === 'done'),
-  );
-  if (succeededTargets.length === targets.length) {
-    toast(
-      targets.length === 1 ? 'Conversion complete.' : `${targets.length} conversions complete.`,
-      'ok',
-    );
+  if (saveError) {
+    toast(`Conversion complete, but files were not saved: ${saveError.message}`, 'err');
+  } else if (succeededTargets.length === targets.length) {
+    const conversionMessage =
+      targets.length === 1 ? 'Conversion complete' : `${targets.length} conversions complete`;
+    toast(`${conversionMessage} · ${savedExportMessage(savedExports)}`, 'ok');
   } else if (succeededTargets.length > 0) {
-    toast(`${succeededTargets.length}/${targets.length} conversions complete.`, 'warn');
+    toast(
+      `${succeededTargets.length}/${targets.length} conversions complete · ${savedExportMessage(savedExports)}`,
+      'warn',
+    );
   } else {
     toast('No files converted successfully.', 'warn');
   }

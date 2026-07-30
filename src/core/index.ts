@@ -2,6 +2,7 @@
  * Public format-agnostic conversion API shared by the CLI and web client.
  */
 import { exportAsset, readAssimpScene, statsFromAssimpScene } from './exportAsset.js';
+import { exportPreparedGlb } from './exportPrepared.js';
 import { InputTooLargeError } from './errors.js';
 import { makeProgress } from './progress.js';
 import { requireOutputFormat } from './formats.js';
@@ -13,6 +14,7 @@ import {
   type BatchResult,
   type ConvertOptions,
   type ConvertResult,
+  type ConvertStats,
   type ConvertWarning,
   type OutputFormat,
 } from '../shared/options.js';
@@ -22,6 +24,7 @@ export * from './errors.js';
 export * from './formats.js';
 export { getAssimp } from './assimpLoader.js';
 export { exportAsset, readAssimpScene, statsFromAssimpScene } from './exportAsset.js';
+export { exportPreparedGlb } from './exportPrepared.js';
 export { inspectGltf, inspectScene } from './inspect.js';
 export { optimizeGltf, type OptimizeResult, type OptimizeChange } from './optimize.js';
 
@@ -57,6 +60,21 @@ function byteLength(file: AssetFile): number {
 export interface ConvertAssetOptions extends ConvertOptions {
   /** Name used for the output basename. For byte-only input it also selects the importer. */
   name?: string;
+  /** Allow a trusted ModelShift-generated intermediate to exceed the external input limit. */
+  allowOversizedInput?: boolean;
+  /** Metadata already collected while producing a trusted intermediate. */
+  knownStats?: Pick<
+    ConvertStats,
+    | 'meshes'
+    | 'materials'
+    | 'textures'
+    | 'animations'
+    | 'bones'
+    | 'morphTargets'
+    | 'triangles'
+    | 'vertices'
+    | 'textureMaxSize'
+  >;
 }
 
 /**
@@ -77,12 +95,14 @@ export async function convertAsset(
   const primaryName = options.name ?? files[0].name;
   const inputBytes = files.reduce((sum, file) => sum + byteLength(file), 0);
   const maxBytes = maxInputBytes();
-  if (inputBytes > maxBytes) throw new InputTooLargeError(inputBytes, maxBytes);
+  if (!options.allowOversizedInput && inputBytes > maxBytes) {
+    throw new InputTooLargeError(inputBytes, maxBytes);
+  }
 
   const started = performance.now();
   const progress = makeProgress(opts);
   progress('parse', 0);
-  const scene = await readAssimpScene(files);
+  const scene = options.knownStats ? undefined : await readAssimpScene(files);
   progress('parse', 1);
   progress('inspect', 0.5);
 
@@ -92,7 +112,8 @@ export async function convertAsset(
     outputFiles[0];
   const outputBytes = outputFiles.reduce((sum, file) => sum + file.data.byteLength, 0);
   const stats = {
-    ...statsFromAssimpScene(scene, inputBytes),
+    ...(options.knownStats ?? statsFromAssimpScene(scene!, inputBytes)),
+    inputBytes,
     outputBytes,
     durationMs: performance.now() - started,
   };
@@ -106,7 +127,7 @@ export async function convertAsset(
     });
   }
   if (format === 'obj' || format === 'stl' || format === 'ply' || format === 'dae') {
-    if ((scene.animations?.length ?? 0) > 0) {
+    if ((options.knownStats?.animations ?? scene?.animations?.length ?? 0) > 0) {
       warnings.push({
         phase: 'export',
         message: `${format.toUpperCase()} is a static mesh format; animation is not included.`,
@@ -119,6 +140,60 @@ export async function convertAsset(
     files: outputFiles,
     format,
     stats,
+    warnings,
+    filename: primary.name,
+  };
+}
+
+/**
+ * Export a GLB produced by ModelShift's own normalization/optimization pass.
+ * Native formats go directly through Assimp, while static formats are written
+ * from the glTF scene without creating a multi-gigabyte assjson intermediate.
+ */
+export async function convertPreparedAsset(
+  file: AssetFile,
+  options: ConvertAssetOptions & {
+    knownStats: NonNullable<ConvertAssetOptions['knownStats']>;
+  },
+): Promise<ConvertResult> {
+  const opts = { ...DEFAULT_OPTIONS, ...options };
+  const format = opts.outputFormat as OutputFormat;
+  if (format === 'fbx' || format === 'glb' || format === 'gltf') {
+    return convertAsset(file, {
+      ...options,
+      allowOversizedInput: true,
+      knownStats: options.knownStats,
+    });
+  }
+
+  const definition = requireOutputFormat(format);
+  const primaryName = options.name ?? file.name;
+  const started = performance.now();
+  const files = await exportPreparedGlb(file, primaryName, format, opts);
+  const primary =
+    files.find((output) => output.name.toLowerCase().endsWith(`.${definition.extension}`)) ??
+    files[0];
+  if (!primary) throw new Error('Prepared export produced no files.');
+  const outputBytes = files.reduce((sum, output) => sum + output.data.byteLength, 0);
+  const progress = makeProgress(opts);
+  progress('inspect', 1);
+  const warnings: ConvertWarning[] = [];
+  if (options.knownStats.animations > 0) {
+    warnings.push({
+      phase: 'export',
+      message: `${format.toUpperCase()} is a static mesh format; animation is not included.`,
+    });
+  }
+  return {
+    data: primary.data,
+    files,
+    format,
+    stats: {
+      ...options.knownStats,
+      inputBytes: file.data.byteLength,
+      outputBytes,
+      durationMs: performance.now() - started,
+    },
     warnings,
     filename: primary.name,
   };

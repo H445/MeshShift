@@ -46,8 +46,40 @@ function postProgress(id: number, phase: ConvertPhase, pct: number): void {
 async function processRequest(message: ModelWorkerRequest): Promise<void> {
   try {
     installWorkerCanvasDocument();
-    const { convertAsset, optimizeGltf } = await import('@core');
+    const { convertAsset, convertPreparedAsset, inspectGltf, optimizeGltf } = await import('@core');
     if (message.type === 'normalize') {
+      const directGlb =
+        message.files.length === 1 && message.files[0].name.toLowerCase().endsWith('.glb')
+          ? message.files[0]
+          : undefined;
+      if (directGlb) {
+        const started = performance.now();
+        const info = await inspectGltf(directGlb.data);
+        const data = directGlb.data;
+        scope.postMessage(
+          {
+            type: 'normalize-result',
+            id: message.id,
+            data,
+            stats: {
+              meshes: info.meshes,
+              materials: info.materials,
+              textures: info.textures,
+              animations: info.animations,
+              bones: info.bones,
+              morphTargets: info.morphTargets,
+              triangles: info.triangles,
+              vertices: info.vertices,
+              textureMaxSize: info.textureMaxSize,
+              inputBytes: data.byteLength,
+              outputBytes: data.byteLength,
+              durationMs: performance.now() - started,
+            },
+          },
+          [data],
+        );
+        return;
+      }
       const result = await convertAsset(message.files, {
         name: message.name,
         outputFormat: 'glb',
@@ -84,9 +116,12 @@ async function processRequest(message: ModelWorkerRequest): Promise<void> {
       return;
     }
 
-    const result = await convertAsset(message.files, {
+    const preparedFile = message.files[0];
+    if (!preparedFile) throw new Error('The prepared model is missing.');
+    const result = await convertPreparedAsset(preparedFile, {
       ...message.options,
       name: message.name,
+      knownStats: message.stats,
       onProgress: (phase, pct) => postProgress(message.id, phase, pct),
     });
     const files = result.files.map((file) => ({

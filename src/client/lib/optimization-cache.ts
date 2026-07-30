@@ -15,11 +15,11 @@ export function optimizationOptionsKey(options: ConvertOptions): string {
   });
 }
 
-export function usesOptimization(options: ConvertOptions): boolean {
+export function usesOptimization(options: ConvertOptions, sourceTextureMaxSize = 8192): boolean {
   return (
     (options.maxTriangles ?? 0) > 0 ||
     options.mergeByMaterial === true ||
     (options.generateLODs ?? 0) > 0 ||
-    (options.maxTextureSize ?? 2048) < 8192
+    (options.maxTextureSize ?? 2048) < sourceTextureMaxSize
   );
 }

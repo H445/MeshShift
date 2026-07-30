@@ -555,6 +555,9 @@ function mimeForName(name: string): string {
   if (extension === 'gltf') return 'model/gltf+json';
   if (extension === 'glb') return 'model/gltf-binary';
   if (extension === 'bin') return 'application/octet-stream';
+  if (extension === 'obj') return 'model/obj';
+  if (extension === 'mtl') return 'text/plain';
+  if (extension === 'stl') return 'model/stl';
   if (extension === 'png') return 'image/png';
   if (extension === 'jpg' || extension === 'jpeg') return 'image/jpeg';
   if (extension === 'dae') return 'model/vnd.collada+xml';
@@ -655,7 +658,11 @@ export async function exportAsset(
     const result = convertWithAssimp(assimp, files, definition.assimpId);
     const raw = Array.from({ length: result.FileCount() }, (_, index) => {
       const file = result.GetFile(index);
-      return { path: file.GetPath(), data: file.GetContent() };
+      // assimpjs exposes a view into its WebAssembly heap. That view can be
+      // invalidated when the heap grows or the conversion result is released,
+      // which corrupted large intermediate GLBs before the optimizer/exporter
+      // could read them. Copy each output while the native result is alive.
+      return { path: file.GetPath(), data: new Uint8Array(file.GetContent()) };
     });
     outputs = renameNativeOutputs(raw, primaryName, format);
   } else {

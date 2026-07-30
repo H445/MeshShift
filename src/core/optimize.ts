@@ -1582,6 +1582,16 @@ export async function optimizeGltf(
   const ab =
     buf instanceof Uint8Array
       ? (() => {
+          // Native exporter results are copied into owned buffers before they
+          // reach this function. Reuse an exact buffer to avoid another
+          // scan-sized allocation; copy only sliced or shared views.
+          if (
+            buf.buffer instanceof ArrayBuffer &&
+            buf.byteOffset === 0 &&
+            buf.byteLength === buf.buffer.byteLength
+          ) {
+            return buf.buffer;
+          }
           const a = new ArrayBuffer(buf.byteLength);
           new Uint8Array(a).set(buf);
           return a;
