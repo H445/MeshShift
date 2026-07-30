@@ -22,6 +22,7 @@ import {
 export * from '../shared/options.js';
 export * from './errors.js';
 export * from './formats.js';
+export * from './lodSelection.js';
 export { getAssimp } from './assimpLoader.js';
 export { exportAsset, readAssimpScene, statsFromAssimpScene } from './exportAsset.js';
 export { exportPreparedGlb } from './exportPrepared.js';

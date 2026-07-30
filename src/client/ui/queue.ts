@@ -4,6 +4,7 @@
  * click-to-preview, and retry-save-to-exports button.
  */
 import type { ConvertResult, InspectResult } from '../../shared/options.js';
+import { normalizeLodLevels } from '../lib/lod-selection.js';
 
 export type QueueStatus = 'queued' | 'converting' | 'done' | 'error';
 
@@ -20,6 +21,10 @@ export interface QueueRow {
   inspect?: InspectResult;
   /** Whether the row is included in the next "Convert" run. */
   selected: boolean;
+  /** LOD levels available from the source and current generation profile. */
+  availableLods: number[];
+  /** LOD levels retained in the next saved export. */
+  selectedLods: number[];
 }
 
 export interface QueueHandle {
@@ -45,6 +50,7 @@ export interface QueueHandle {
   onPreviewOne(cb: (id: string) => void): void;
   onRemoveOne(cb: (id: string) => void): void;
   onRowClick(cb: (id: string) => void): void;
+  onLodSelectionChange(cb: (id: string, levels: number[]) => void): void;
   onSelectionChange(cb: (counts: { selected: number; total: number }) => void): void;
   onSelectAll(cb: (selected: boolean) => void): void;
   showSaveAllButton(show: boolean): void;
@@ -74,10 +80,62 @@ export function createQueue(_host: HTMLElement, listEl: HTMLElement): QueueHandl
     previewOne: (_id: string) => {},
     removeOne: (_id: string) => {},
     rowClick: (_id: string) => {},
+    lodSelection: (_id: string, _levels: number[]) => {},
     selectAll: (_selected: boolean) => {},
   };
+  const globalLodHost = document.getElementById('queue-global-lods') as HTMLElement | null;
   let countCb: (n: number) => void = () => {};
   let selectionCb: (counts: { selected: number; total: number }) => void = () => {};
+
+  function renderGlobalLodControls(): void {
+    if (!globalLodHost) return;
+    globalLodHost.innerHTML = '';
+    const levels = normalizeLodLevels(rows.flatMap((row) => row.availableLods));
+    globalLodHost.hidden = rows.length === 0 || levels.length <= 1;
+    if (globalLodHost.hidden) return;
+
+    const title = document.createElement('span');
+    title.className = 'queue-lod-label';
+    title.textContent = 'All files';
+    globalLodHost.append(title);
+    const locked = rows.some((row) => row.status === 'converting');
+
+    for (const level of levels) {
+      const applicable = rows.filter((row) => row.availableLods.includes(level));
+      const selectedCount = applicable.filter((row) => row.selectedLods.includes(level)).length;
+      const label = document.createElement('label');
+      label.className = 'queue-lod-toggle';
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.checked = applicable.length > 0 && selectedCount === applicable.length;
+      input.indeterminate = selectedCount > 0 && selectedCount < applicable.length;
+      input.disabled = locked;
+      input.setAttribute('aria-label', `Save LOD${level} for all files`);
+      const text = document.createElement('span');
+      text.textContent = `LOD${level}`;
+      input.addEventListener('change', () => {
+        const selected = input.checked;
+        for (const row of applicable) {
+          const next = normalizeLodLevels(
+            selected
+              ? [...row.selectedLods, level]
+              : row.selectedLods.filter((candidate) => candidate !== level),
+          );
+          if (
+            next.length === row.selectedLods.length &&
+            next.every((candidate, index) => candidate === row.selectedLods[index])
+          ) {
+            continue;
+          }
+          row.selectedLods = next;
+          handlers.lodSelection(row.id, [...next]);
+        }
+        render();
+      });
+      label.append(input, text);
+      globalLodHost.append(label);
+    }
+  }
 
   function render() {
     listEl.innerHTML = '';
@@ -143,6 +201,40 @@ export function createQueue(_host: HTMLElement, listEl: HTMLElement): QueueHandl
       }
       meta.textContent = parts.join(' · ');
       info.append(name, meta);
+
+      if (r.availableLods.length > 1) {
+        const lods = document.createElement('div');
+        lods.className = 'queue-item-lods';
+        lods.setAttribute('aria-label', `LOD export selection for ${r.name}`);
+        const lodLabel = document.createElement('span');
+        lodLabel.className = 'queue-lod-label';
+        lodLabel.textContent = 'Save';
+        lods.append(lodLabel);
+        for (const level of r.availableLods) {
+          const label = document.createElement('label');
+          label.className = 'queue-lod-toggle';
+          const input = document.createElement('input');
+          input.type = 'checkbox';
+          input.checked = r.selectedLods.includes(level);
+          input.disabled = r.status === 'converting';
+          input.setAttribute('aria-label', `Save LOD${level} for ${r.name}`);
+          input.addEventListener('click', (event) => event.stopPropagation());
+          input.addEventListener('change', () => {
+            r.selectedLods = normalizeLodLevels(
+              input.checked
+                ? [...r.selectedLods, level]
+                : r.selectedLods.filter((candidate) => candidate !== level),
+            );
+            handlers.lodSelection(r.id, [...r.selectedLods]);
+            render();
+          });
+          const text = document.createElement('span');
+          text.textContent = `LOD${level}`;
+          label.append(input, text);
+          lods.append(label);
+        }
+        info.append(lods);
+      }
 
       const prog = document.createElement('div');
       prog.className = 'queue-item-progress';
@@ -214,6 +306,7 @@ export function createQueue(_host: HTMLElement, listEl: HTMLElement): QueueHandl
       li.append(check, info, prog, status, action, remove);
       listEl.append(li);
     }
+    renderGlobalLodControls();
   }
 
   function nextId() {
@@ -241,6 +334,8 @@ export function createQueue(_host: HTMLElement, listEl: HTMLElement): QueueHandl
         status: 'queued',
         progress: 0,
         selected: true,
+        availableLods: [0],
+        selectedLods: [0],
       };
       rows.push(row);
       render();
@@ -252,6 +347,10 @@ export function createQueue(_host: HTMLElement, listEl: HTMLElement): QueueHandl
       const r = rows.find((x) => x.id === id);
       if (!r) return;
       Object.assign(r, patch);
+      r.availableLods = normalizeLodLevels(r.availableLods);
+      r.selectedLods = normalizeLodLevels(r.selectedLods).filter((level) =>
+        r.availableLods.includes(level),
+      );
       render();
     },
     remove(id) {
@@ -320,6 +419,9 @@ export function createQueue(_host: HTMLElement, listEl: HTMLElement): QueueHandl
     },
     onRowClick(cb) {
       handlers.rowClick = cb;
+    },
+    onLodSelectionChange(cb) {
+      handlers.lodSelection = cb;
     },
     onSelectionChange(cb) {
       selectionCb = cb;

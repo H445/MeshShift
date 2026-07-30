@@ -150,6 +150,8 @@ The loading panel reports each of those stages and remains animated during long 
 
 When **Generate optimized preview** has already produced a model with the current geometry, texture, engine, and LOD settings, conversion exports directly from that cached optimized GLB. ModelShift does not repeat normalization or optimization. Changing only the output format or other export-only settings keeps the cached model valid; changing the source or an optimization setting invalidates it. The converted output viewer also renders from this prepared GLB, avoiding a second import round trip through the exported format.
 
+When more than one LOD is available, every row in the **Files** list shows `LOD0`, `LOD1`, and deeper save toggles. These are per-object: each converted file keeps only its checked levels. The matching controls beside the Files heading toggle a level globally across the full batch. Changing the LOD selection on a completed row returns that row to **Queued** so converting again safely overwrites its export with the new selection.
+
 ## How LOD generation works
 
 LOD generation is a geometry-first pipeline. It favors a safe plateau over hitting a triangle target with holes, folded faces, broken UV islands, or a visibly damaged outline.

@@ -19,6 +19,7 @@ import {
   type PreviewNormalized,
 } from './lib/preview-normalizer.js';
 import { optimizationOptionsKey, usesOptimization } from './lib/optimization-cache.js';
+import { lodLevelsThrough, reconcileLodLevels, sameLodLevels } from './lib/lod-selection.js';
 import { detectLods, selectLod, renderLodSelector, hideLodSelector } from './ui/lod.js';
 import type { AssetFile, ConvertPhase, ConvertResult, InspectResult } from '../shared/options.js';
 import type { OptimizeChange, OptimizeResult } from '../core/optimize.js';
@@ -116,11 +117,43 @@ interface FileRow {
     key: string;
     result: OptimizeResult;
   };
+  /** Highest LOD discovered in the source before generated profile levels are added. */
+  sourceMaxLod: number;
 }
 const fileRows: FileRow[] = [];
 let activeId: string | null = null;
 let inputPreviewRequest = 0;
 let outputPreviewRequest = 0;
+
+function syncFileLodLevels(
+  entry: FileRow,
+  generatedLods = profiles.read().generateLODs ?? 0,
+): void {
+  const row = queue.list().find((candidate) => candidate.id === entry.id);
+  if (!row) return;
+  const availableLods = lodLevelsThrough(Math.max(entry.sourceMaxLod, generatedLods));
+  if (sameLodLevels(row.availableLods, availableLods)) return;
+  const selectedLods = reconcileLodLevels(row.availableLods, row.selectedLods, availableLods);
+  queue.update(entry.id, {
+    availableLods,
+    selectedLods,
+    ...(row.status === 'done'
+      ? {
+          status: 'queued' as const,
+          progress: 0,
+          phase: undefined,
+          result: undefined,
+        }
+      : {}),
+  });
+}
+
+function syncAllFileLodLevels(generatedLods: number): void {
+  for (const entry of fileRows) syncFileLodLevels(entry, generatedLods);
+  syncSaveAllVisibility();
+}
+
+profiles.onChange((options) => syncAllFileLodLevels(options.generateLODs ?? 0));
 
 // Dropzone
 createDropzone(document.body).onFiles((files) => addFiles(files));
@@ -228,9 +261,10 @@ async function addFiles(files: File[]) {
   const added: FileRow[] = [];
   for (const group of groups) {
     const row = queue.add(group.primary);
-    const entry = { id: row.id, file: group.primary, files: group.files };
+    const entry = { id: row.id, file: group.primary, files: group.files, sourceMaxLod: 0 };
     fileRows.push(entry);
     added.push(entry);
+    syncFileLodLevels(entry);
     const totalBytes = group.files.reduce((sum, file) => sum + file.size, 0);
     if (totalBytes !== group.primary.size) queue.update(row.id, { size: totalBytes });
   }
@@ -288,6 +322,7 @@ function replaceActiveFiles(files: File[]) {
   entry.inspectPromise = undefined;
   entry.previewNormalizedPromise = undefined;
   entry.optimizedPreview = undefined;
+  entry.sourceMaxLod = 0;
   queue.update(entry.id, {
     name: group.primary.name,
     size: group.files.reduce((sum, file) => sum + file.size, 0),
@@ -298,7 +333,10 @@ function replaceActiveFiles(files: File[]) {
     errorMessage: undefined,
     inspect: undefined,
     selected: true,
+    availableLods: [0],
+    selectedLods: [0],
   });
+  syncFileLodLevels(entry);
   queue.setActive(entry.id);
   resetOutputPreview();
   focusRow(entry.id);
@@ -450,6 +488,11 @@ async function previewInput(entry: FileRow, file: File): Promise<InspectResult> 
     updateInputLoading(request, 0.96, 'Inspecting scene metadata…');
     const { inspectScene } = await import('@core');
     const info = inspectScene(gltf.scene, gltf.animations);
+    const sourceLods = detectLods(gltf.scene);
+    if (sourceLods.maxLod !== entry.sourceMaxLod) {
+      entry.sourceMaxLod = sourceLods.maxLod;
+      syncFileLodLevels(entry);
+    }
 
     if (request !== inputPreviewRequest || entry.file !== file || activeId !== entry.id) {
       const error = new Error('Preview loading was superseded.');
@@ -487,17 +530,30 @@ function showOutputLabel(text: string): void {
  * Detect LODs in a loaded scene, render the LOD slider, and
  * hide it if no LODs are found. Called after every output preview.
  */
-function handleLodsForScene(scene: unknown) {
+function handleLodsForScene(scene: unknown, allowedLevels?: number[]) {
   const info = detectLods(scene as { traverse: (cb: (obj: unknown) => void) => void });
   if (info.maxLod === 0) {
     hideLodSelector(lodSelector, lodSliderHost);
     return;
   }
-  renderLodSelector(lodSelector, lodSliderHost, info, (level) => {
-    selectLod(info, level);
-  });
-  // Default to the original mesh; every generated LOD remains selectable.
-  selectLod(info, 0);
+  const levels = (allowedLevels ?? Array.from(info.meshesByLod.keys()))
+    .filter((level) => (info.meshesByLod.get(level)?.length ?? 0) > 0)
+    .sort((a, b) => a - b);
+  if (levels.length === 0) {
+    hideLodSelector(lodSelector, lodSliderHost);
+    return;
+  }
+  renderLodSelector(
+    lodSelector,
+    lodSliderHost,
+    info,
+    (level) => {
+      selectLod(info, level);
+    },
+    levels,
+  );
+  // Default to the first retained level in the converted export.
+  selectLod(info, levels[0]);
 }
 
 async function previewConverted(result: ConvertResult) {
@@ -526,6 +582,7 @@ async function previewConverted(result: ConvertResult) {
       normalized.data,
       `Converted ${result.format.toUpperCase()} · ${result.filename}`,
       request,
+      result.lodLevels,
     );
     updateOutputLoading(request, 1, 'Converted preview ready');
     await nextPaint();
@@ -541,7 +598,12 @@ async function previewConverted(result: ConvertResult) {
 }
 
 // Preview a GLB (the optimized one) directly without going through FBX.
-async function previewGlb(glb: Uint8Array, label: string, activeRequest?: number) {
+async function previewGlb(
+  glb: Uint8Array,
+  label: string,
+  activeRequest?: number,
+  allowedLodLevels?: number[],
+) {
   const request = activeRequest ?? ++outputPreviewRequest;
   outputEmpty.hidden = true;
   outputCanvas.hidden = false;
@@ -562,7 +624,7 @@ async function previewGlb(glb: Uint8Array, label: string, activeRequest?: number
           if (request === outputPreviewRequest) {
             outputViewer.setScene(g.scene);
             showOutputLabel(label);
-            handleLodsForScene(g.scene);
+            handleLodsForScene(g.scene, allowedLodLevels);
           }
           resolve();
         },
@@ -694,6 +756,20 @@ queue.onPreviewOne((id) => {
   const r = queue.list().find((row) => row.id === id)?.result;
   if (r) previewConverted(r);
 });
+queue.onLodSelectionChange((id) => {
+  const row = queue.list().find((candidate) => candidate.id === id);
+  if (!row || (row.status !== 'done' && row.status !== 'error')) return;
+  queue.update(id, {
+    status: 'queued',
+    progress: 0,
+    phase: undefined,
+    result: undefined,
+    errorMessage: undefined,
+    selected: true,
+  });
+  resetOutputPreview();
+  syncSaveAllVisibility();
+});
 queue.onRowClick((id) => {
   // Click on a row → focus it and show the source preview in INPUT.
   // (Buttons inside the row stop propagation, so this only fires on
@@ -704,6 +780,7 @@ queue.onRemoveOne((id) => {
   queue.remove(id);
   const i = fileRows.findIndex((e) => e.id === id);
   if (i >= 0) fileRows.splice(i, 1);
+  syncSaveAllVisibility();
   if (activeId === id) {
     inputPreviewRequest++;
     cancelPreviewNormalizations();
@@ -961,6 +1038,11 @@ async function convertAll() {
     toast('No files selected for conversion.', 'warn');
     return;
   }
+  const missingLodSelection = targets.find((row) => row.selectedLods.length === 0);
+  if (missingLodSelection) {
+    toast(`Select at least one LOD to save for ${missingLodSelection.name}.`, 'warn');
+    return;
+  }
 
   resetOutputPreview();
   const request = outputPreviewRequest;
@@ -985,6 +1067,7 @@ async function convertAll() {
     | {
         data: Uint8Array;
         label: string;
+        lodLevels: number[];
       }
     | undefined;
   let renderedOptimizationStats = false;
@@ -1054,11 +1137,19 @@ async function convertAll() {
       }
 
       const preparedName = `${sourceFile.name.replace(/\.[^.]+$/, '')}.glb`;
+      const exportRow = queue.list().find((row) => row.id === entry.id);
+      if (!exportRow || exportRow.selectedLods.length === 0) {
+        throw new Error('Select at least one LOD before exporting.');
+      }
       const result = await convertInWorker(
         [{ name: preparedName, data: preparedData }],
         sourceFile.name,
         options,
         optimized?.stats ?? normalized.stats,
+        {
+          available: exportRow.availableLods,
+          selected: exportRow.selectedLods,
+        },
         (phase, pct) => {
           const [progress, detail] = workerExportProgress(phase, pct);
           updateItemProgress(entry, 0.68 + progress * 0.3, detail);
@@ -1077,6 +1168,7 @@ async function convertAll() {
       autoPreview ??= {
         data: preparedData,
         label: `Converted ${result.format.toUpperCase()} · ${result.filename}`,
+        lodLevels: result.lodLevels ?? exportRow.selectedLods,
       };
     } catch (reason) {
       const error = reason instanceof Error ? reason : new Error(String(reason));
@@ -1112,7 +1204,7 @@ async function convertAll() {
     try {
       updateOutputLoading(request, 0.995, 'Rendering converted preview…');
       await nextPaint();
-      await previewGlb(autoPreview.data, autoPreview.label, request);
+      await previewGlb(autoPreview.data, autoPreview.label, request, autoPreview.lodLevels);
       updateOutputLoading(
         request,
         1,
@@ -1132,10 +1224,7 @@ async function convertAll() {
   addMoreBtn.disabled = false;
   if (masterCheck) masterCheck.disabled = false;
 
-  const succeeded = queue.list().filter((row) => row.status === 'done');
-  if (succeeded.length > 1 || succeeded.some((row) => (row.result?.files.length ?? 0) > 1)) {
-    queue.showSaveAllButton(true);
-  }
+  syncSaveAllVisibility();
   if (saveError) {
     toast(`Conversion complete, but files were not saved: ${saveError.message}`, 'err');
   } else if (succeededTargets.length === targets.length) {
@@ -1150,6 +1239,13 @@ async function convertAll() {
   } else {
     toast('No files converted successfully.', 'warn');
   }
+}
+
+function syncSaveAllVisibility(): void {
+  const succeeded = queue.list().filter((row) => row.status === 'done' && row.result);
+  queue.showSaveAllButton(
+    succeeded.length > 1 || succeeded.some((row) => (row.result?.files.length ?? 0) > 1),
+  );
 }
 
 function savedExportMessage(saved: SavedExport[]): string {

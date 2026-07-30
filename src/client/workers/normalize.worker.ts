@@ -1,5 +1,5 @@
 import type { ModelWorkerRequest, ModelWorkerResponse } from '../lib/preview-normalizer.js';
-import type { ConvertPhase } from '../../shared/options.js';
+import type { AssetFile, ConvertPhase } from '../../shared/options.js';
 
 interface WorkerScope {
   onmessage: ((event: MessageEvent<ModelWorkerRequest>) => void) | null;
@@ -46,7 +46,8 @@ function postProgress(id: number, phase: ConvertPhase, pct: number): void {
 async function processRequest(message: ModelWorkerRequest): Promise<void> {
   try {
     installWorkerCanvasDocument();
-    const { convertAsset, convertPreparedAsset, inspectGltf, optimizeGltf } = await import('@core');
+    const { convertAsset, convertPreparedAsset, inspectGltf, optimizeGltf, selectGlbLods } =
+      await import('@core');
     if (message.type === 'normalize') {
       const directGlb =
         message.files.length === 1 && message.files[0].name.toLowerCase().endsWith('.glb')
@@ -116,12 +117,31 @@ async function processRequest(message: ModelWorkerRequest): Promise<void> {
       return;
     }
 
-    const preparedFile = message.files[0];
+    let preparedFile: AssetFile | undefined = message.files[0];
     if (!preparedFile) throw new Error('The prepared model is missing.');
+    const availableLods = Array.from(new Set(message.availableLods)).sort((a, b) => a - b);
+    let selectedLods = Array.from(new Set(message.selectedLods)).sort((a, b) => a - b);
+    const selectedSet = new Set(selectedLods);
+    const shouldFilterLods =
+      selectedLods.length !== availableLods.length ||
+      availableLods.some((level) => !selectedSet.has(level));
+    let knownStats = message.stats;
+    if (shouldFilterLods) {
+      const selection = selectGlbLods(preparedFile, selectedLods);
+      preparedFile = { ...preparedFile, data: selection.data };
+      selectedLods = selection.selectedLods;
+      knownStats = {
+        ...message.stats,
+        meshes: selection.meshes,
+        materials: selection.materials,
+        triangles: selection.triangles,
+        vertices: selection.vertices,
+      };
+    }
     const result = await convertPreparedAsset(preparedFile, {
       ...message.options,
       name: message.name,
-      knownStats: message.stats,
+      knownStats,
       onProgress: (phase, pct) => postProgress(message.id, phase, pct),
     });
     const files = result.files.map((file) => ({
@@ -139,6 +159,7 @@ async function processRequest(message: ModelWorkerRequest): Promise<void> {
           stats: result.stats,
           warnings: result.warnings,
           filename: result.filename,
+          lodLevels: selectedLods,
         },
       },
       files.map((file) => file.data),

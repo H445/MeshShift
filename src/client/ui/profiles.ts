@@ -16,6 +16,7 @@ const TARGET_ENGINES: TargetEngine[] = ['auto', 'unity', 'unreal', 'godot'];
 
 export interface ProfilesHandle {
   read(): ConvertOptions;
+  onChange(callback: (options: ConvertOptions) => void): () => void;
   destroy(): void;
 }
 
@@ -31,6 +32,7 @@ export function createProfiles(): ProfilesHandle {
     { length: 4 },
     (_, index) => document.getElementById(`profile-lod-target-${index + 1}`) as HTMLInputElement,
   );
+  const changeHandlers = new Set<(options: ConvertOptions) => void>();
 
   function readTargets(): number[] {
     return lodTargetEls.map((input) => Math.max(0, Math.floor(Number(input.value) || 0)));
@@ -102,6 +104,12 @@ export function createProfiles(): ProfilesHandle {
     }
   }
 
+  function emitChange(): void {
+    persistProfile();
+    const options = readControls();
+    for (const handler of changeHandlers) handler(options);
+  }
+
   function updateTargetPlaceholders(): void {
     const ratios = DEFAULT_LOD_TRIANGLE_RATIOS;
     lodTargetEls.forEach((input, index) => {
@@ -120,10 +128,10 @@ export function createProfiles(): ProfilesHandle {
     ...lodTargetEls,
   ];
   for (const control of controls) {
-    control.addEventListener('change', persistProfile);
+    control.addEventListener('change', emitChange);
   }
-  maxTrisEl.addEventListener('input', persistProfile);
-  for (const input of lodTargetEls) input.addEventListener('input', persistProfile);
+  maxTrisEl.addEventListener('input', emitChange);
+  for (const input of lodTargetEls) input.addEventListener('input', emitChange);
 
   function open() {
     panel.hidden = false;
@@ -137,12 +145,18 @@ export function createProfiles(): ProfilesHandle {
 
   return {
     read: readControls,
+    onChange(callback) {
+      changeHandlers.add(callback);
+      callback(readControls());
+      return () => changeHandlers.delete(callback);
+    },
     destroy() {
-      for (const control of controls) control.removeEventListener('change', persistProfile);
-      maxTrisEl.removeEventListener('input', persistProfile);
-      for (const input of lodTargetEls) input.removeEventListener('input', persistProfile);
+      for (const control of controls) control.removeEventListener('change', emitChange);
+      maxTrisEl.removeEventListener('input', emitChange);
+      for (const input of lodTargetEls) input.removeEventListener('input', emitChange);
       openBtn.removeEventListener('click', togglePanel);
       closeBtn.removeEventListener('click', close);
+      changeHandlers.clear();
     },
   };
 }

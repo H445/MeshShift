@@ -466,6 +466,7 @@ body {
   display: flex;
   align-items: center;
   gap: 12px;
+  min-width: 0;
 }
 .queue-master-check {
   display: inline-flex;
@@ -496,6 +497,71 @@ body {
 .queue-actions {
   display: flex;
   gap: 8px;
+}
+.queue-global-lods,
+.queue-item-lods {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.queue-global-lods[hidden] {
+  display: none;
+}
+.queue-global-lods {
+  padding-left: 12px;
+  border-left: 1px solid var(--border);
+  white-space: nowrap;
+}
+.queue-item-lods {
+  margin-top: 6px;
+  min-height: 22px;
+}
+.queue-lod-label {
+  color: var(--fg-2);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.45px;
+  text-transform: uppercase;
+}
+.queue-lod-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 22px;
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-2);
+  color: var(--fg-2);
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  transition:
+    border-color 0.12s ease,
+    background 0.12s ease,
+    color 0.12s ease;
+}
+.queue-lod-toggle:hover {
+  border-color: var(--accent-dim);
+  color: var(--fg-1);
+}
+.queue-lod-toggle:has(input:checked) {
+  border-color: var(--accent-dim);
+  background: rgba(46, 160, 255, 0.12);
+  color: var(--accent);
+}
+.queue-lod-toggle:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.queue-lod-toggle input {
+  width: 12px;
+  height: 12px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: inherit;
 }
 .queue-list {
   list-style: none;

@@ -103,13 +103,17 @@ export function renderLodSelector(
   sliderHost: HTMLElement,
   info: LodInfo,
   onChange: (level: number) => void,
+  allowedLevels?: number[],
 ): { selected: () => number } {
   host.hidden = false;
   sliderHost.innerHTML = '';
-  const levels: number[] = [];
-  for (let i = 0; i <= info.maxLod; i++) levels.push(i);
+  const requested = allowedLevels
+    ? Array.from(new Set(allowedLevels)).sort((a, b) => a - b)
+    : Array.from(info.meshesByLod.keys()).sort((a, b) => a - b);
+  const levels = requested.filter((level) => (info.meshesByLod.get(level)?.length ?? 0) > 0);
+  if (levels.length === 0) levels.push(0);
 
-  let current = 0;
+  let current = levels[0];
 
   const slider = document.createElement('input');
   slider.id = 'lod-slider';

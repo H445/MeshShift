@@ -171,6 +171,8 @@ export interface ConvertResult {
   stats: ConvertStats;
   warnings: ConvertWarning[];
   filename: string;
+  /** LOD levels retained when a prepared browser export is filtered. */
+  lodLevels?: number[];
 }
 
 /** @deprecated Use ConvertResult. */

@@ -37,6 +37,8 @@ export type ModelWorkerRequest =
       files: Array<{ name: string; data: ArrayBuffer }>;
       options: WorkerConvertOptions;
       stats: InspectResult | ConvertStats;
+      availableLods: number[];
+      selectedLods: number[];
     };
 
 export type ModelWorkerSuccess =
@@ -62,6 +64,7 @@ export type ModelWorkerSuccess =
         stats: ConvertStats;
         warnings: ConvertWarning[];
         filename: string;
+        lodLevels: number[];
       };
     };
 
@@ -234,6 +237,7 @@ export async function convertInWorker(
   name: string,
   options: WorkerConvertOptions,
   stats: InspectResult | ConvertStats,
+  lodSelection: { available: number[]; selected: number[] },
   onProgress?: (phase: ConvertPhase, pct: number) => void,
 ): Promise<ConvertResult> {
   const id = nextRequestId++;
@@ -250,6 +254,8 @@ export async function convertInWorker(
       files: transferableFiles,
       options,
       stats,
+      availableLods: lodSelection.available,
+      selectedLods: lodSelection.selected,
     },
     transferableFiles.map((file) => file.data),
     onProgress,
