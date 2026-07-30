@@ -42,7 +42,23 @@ const TEXTURE_SLOTS = [
 
 const INVALID_FACE = 0xffffffff;
 const ATLAS_PADDING = 8;
+const MAX_TEXTURE_FILTER_RADIUS = 4;
+const FILTER_SAMPLE_COUNT = 5;
 let watlasReady: Promise<void> | null = null;
+
+type TextureBakeKind = 'color' | 'data' | 'normal';
+
+const COLOR_TEXTURE_SLOTS = new Set<(typeof TEXTURE_SLOTS)[number]>([
+  'map',
+  'emissiveMap',
+  'sheenColorMap',
+  'specularColorMap',
+]);
+
+const NORMAL_TEXTURE_SLOTS = new Set<(typeof TEXTURE_SLOTS)[number]>([
+  'normalMap',
+  'clearcoatNormalMap',
+]);
 
 type VertexAttribute = BufferAttribute | InterleavedBufferAttribute;
 type TypedArrayConstructor = new (length: number) => TypedArray;
@@ -349,7 +365,18 @@ export async function createLodTextureBaker(
           if (!bakedTexture) {
             const pixels = textures.get(sourceTexture);
             if (!pixels) continue;
-            bakedTexture = bakeTexture(pixels, projection, projectionGeometry, lodLevel);
+            const kind: TextureBakeKind = COLOR_TEXTURE_SLOTS.has(slot)
+              ? 'color'
+              : NORMAL_TEXTURE_SLOTS.has(slot)
+                ? 'normal'
+                : 'data';
+            bakedTexture = await bakeTexture(
+              pixels,
+              projection,
+              projectionGeometry,
+              lodLevel,
+              kind,
+            );
             bakedTextures.set(sourceTexture, bakedTexture);
           }
           bakedRecord[slot] = bakedTexture;
@@ -738,12 +765,13 @@ function dilateProjectionMap(
   }
 }
 
-function bakeTexture(
+async function bakeTexture(
   source: SourceTexturePixels,
   projection: ProjectionMap,
   sourceGeometry: BufferGeometry,
   lodLevel: number,
-): Texture {
+  kind: TextureBakeKind,
+): Promise<Texture> {
   const sourceTexture = source.texture;
   const uvName = sourceTexture.channel > 0 ? `uv${sourceTexture.channel}` : 'uv';
   const sourceUv = sourceGeometry.attributes[uvName] ?? sourceGeometry.attributes.uv;
@@ -758,8 +786,18 @@ function bakeTexture(
   if (!context) throw new Error('could not create texture bake canvas');
   const output = context.createImageData(projection.width, projection.height);
   const rgba = output.data;
+  const filterRadius = textureFilterRadius(
+    source.width,
+    source.height,
+    projection.width,
+    projection.height,
+  );
+  const filterScratch = new Uint8ClampedArray(FILTER_SAMPLE_COUNT * 4);
 
   for (let pixel = 0; pixel < projection.faces.length; pixel++) {
+    // Footprint filtering performs several source samples per texel. Yield in
+    // bounded chunks so a large atlas never monopolizes the browser thread.
+    if (pixel > 0 && (pixel & 0x3fff) === 0) await yieldToBrowser();
     const face = projection.faces[pixel];
     if (face === INVALID_FACE) continue;
     const ia = sourceIndex.getX(face * 3);
@@ -773,7 +811,16 @@ function bakeTexture(
     const transformedU = transform[0] * u + transform[3] * v + transform[6];
     let transformedV = transform[1] * u + transform[4] * v + transform[7];
     if (sourceTexture.flipY) transformedV = 1 - transformedV;
-    sampleBilinear(source, transformedU, transformedV, rgba, pixel * 4);
+    sampleTextureFootprint(
+      source,
+      transformedU,
+      transformedV,
+      filterRadius,
+      kind,
+      filterScratch,
+      rgba,
+      pixel * 4,
+    );
   }
   context.putImageData(output, 0, 0);
 
@@ -794,6 +841,69 @@ function bakeTexture(
   if (baked.mipmaps) baked.mipmaps.length = 0;
   baked.needsUpdate = true;
   return baked;
+}
+
+/**
+ * Approximate the source footprint of one atlas texel. Bilinear sampling
+ * already covers a one-texel neighborhood, so the extra radius begins only
+ * when the source is being reduced. A bounded radius avoids both scan-noise
+ * aliasing and excessive blur on unusually large source maps.
+ */
+export function textureFilterRadius(
+  sourceWidth: number,
+  sourceHeight: number,
+  targetWidth: number,
+  targetHeight: number,
+): number {
+  const scale = Math.max(
+    sourceWidth / Math.max(1, targetWidth),
+    sourceHeight / Math.max(1, targetHeight),
+  );
+  return Math.min(MAX_TEXTURE_FILTER_RADIUS, Math.max(0, (scale - 1) * 0.5));
+}
+
+function sampleTextureFootprint(
+  source: SourceTexturePixels,
+  u: number,
+  v: number,
+  radius: number,
+  kind: TextureBakeKind,
+  scratch: Uint8ClampedArray,
+  output: Uint8ClampedArray,
+  outputOffset: number,
+): void {
+  if (radius < 0.125) {
+    sampleBilinear(source, u, v, output, outputOffset);
+    return;
+  }
+
+  const du = radius / source.width;
+  const dv = radius / source.height;
+  sampleBilinear(source, u, v, scratch, 0);
+  sampleBilinear(source, u - du, v - dv, scratch, 4);
+  sampleBilinear(source, u + du, v - dv, scratch, 8);
+  sampleBilinear(source, u - du, v + dv, scratch, 12);
+  sampleBilinear(source, u + du, v + dv, scratch, 16);
+
+  for (let channel = 0; channel < 4; channel++) {
+    let total = 0;
+    for (let sample = 0; sample < FILTER_SAMPLE_COUNT; sample++) {
+      total += scratch[sample * 4 + channel];
+    }
+    output[outputOffset + channel] = Math.round(total / FILTER_SAMPLE_COUNT);
+  }
+
+  if (kind === 'normal') {
+    const x = output[outputOffset] / 127.5 - 1;
+    const y = output[outputOffset + 1] / 127.5 - 1;
+    const z = output[outputOffset + 2] / 127.5 - 1;
+    const length = Math.hypot(x, y, z);
+    if (length > 1e-6) {
+      output[outputOffset] = Math.round((x / length + 1) * 127.5);
+      output[outputOffset + 1] = Math.round((y / length + 1) * 127.5);
+      output[outputOffset + 2] = Math.round((z / length + 1) * 127.5);
+    }
+  }
 }
 
 function sampleBilinear(

@@ -16,7 +16,10 @@ import {
   meshoptDecimate,
   restoreCriticalVertices,
 } from '../src/core/optimize.js';
-import { unwrapLodGeometry } from '../src/core/lod-texture-baker.js';
+import {
+  textureFilterRadius,
+  unwrapLodGeometry,
+} from '../src/core/lod-texture-baker.js';
 
 interface TopologyStats {
   boundaryEdges: number;
@@ -75,6 +78,13 @@ function topologyStats(geometry: BufferGeometry): TopologyStats {
 }
 
 describe('topology-safe LOD decimation', () => {
+  it('adds bounded source-footprint filtering only when an LOD atlas downsamples a texture', () => {
+    expect(textureFilterRadius(1024, 1024, 1024, 1024)).toBe(0);
+    expect(textureFilterRadius(2048, 2048, 1024, 1024)).toBe(0.5);
+    expect(textureFilterRadius(4096, 2048, 512, 512)).toBe(3.5);
+    expect(textureFilterRadius(16384, 16384, 256, 256)).toBe(4);
+  });
+
   it('does not widen boundaries or turn faces inside-out at aggressive targets', () => {
     const source = new SphereGeometry(1, 32, 20);
     const beforeTriangles = source.index!.count / 3;

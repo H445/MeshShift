@@ -1,7 +1,7 @@
 /**
  * Tiny three.js viewer factory. Used for both panes (input + output preview).
  * Features:
- *  - Bright multi-source lighting (ambient + hemisphere + 3-point directional)
+ *  - Neutral multi-source lighting (ambient + hemisphere + 3-point directional)
  *  - PMREM environment for PBR reflections
  *  - Idle auto-rotation ("turnstyle") that pauses on user interaction
  *    and resumes after a few seconds of inactivity
@@ -44,8 +44,12 @@ export function createViewer(canvas: HTMLCanvasElement): ViewerHandle {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.2;
+  // Neutral tone mapping preserves texture contrast much more faithfully than
+  // the previous bright ACES setup. That setup made scan noise nearly
+  // invisible in the browser even though the lossless exported texture still
+  // contained it, so an FBX opened in a DCC appeared to have changed.
+  renderer.toneMapping = THREE.NeutralToneMapping;
+  renderer.toneMappingExposure = 1;
 
   const scene = new THREE.Scene();
   scene.background = null; // CSS gradient shows through
@@ -64,22 +68,24 @@ export function createViewer(canvas: HTMLCanvasElement): ViewerHandle {
   controls.minDistance = 0.2;
   controls.maxDistance = 50;
 
-  // --- Bright multi-source lighting (no shadows) --------------------------
-  const hemi = new THREE.HemisphereLight(0xc8d4ff, 0x2a2f3a, 0.7);
+  // --- Neutral multi-source lighting (no shadows) -------------------------
+  // Keep the summed diffuse energy near a conventional studio preview. This
+  // still makes unlit sides readable without washing out base-color detail.
+  const hemi = new THREE.HemisphereLight(0xc8d4ff, 0x2a2f3a, 0.35);
   scene.add(hemi);
 
-  const ambient = new THREE.AmbientLight(0xffffff, 0.5);
+  const ambient = new THREE.AmbientLight(0xffffff, 0.15);
   scene.add(ambient);
 
-  const key = new THREE.DirectionalLight(0xffffff, 1.6);
+  const key = new THREE.DirectionalLight(0xffffff, 1.05);
   key.position.set(4, 6, 5);
   scene.add(key);
 
-  const fill = new THREE.DirectionalLight(0x9ec5ff, 0.8);
+  const fill = new THREE.DirectionalLight(0x9ec5ff, 0.3);
   fill.position.set(-5, 3, -3);
   scene.add(fill);
 
-  const rim = new THREE.DirectionalLight(0xffe6c8, 0.6);
+  const rim = new THREE.DirectionalLight(0xffe6c8, 0.25);
   rim.position.set(0, 4, -6);
   scene.add(rim);
 
