@@ -6,7 +6,7 @@ import { createDropzone } from './ui/dropzone.js';
 import { createQueue } from './ui/queue.js';
 import { createSettings } from './ui/settings.js';
 import { createProfiles } from './ui/profiles.js';
-import { createViewer, type ViewerAxis } from './ui/viewer.js';
+import { createViewer, type DetailPinPick, type ViewerAxis } from './ui/viewer.js';
 import { toast } from './ui/toast.js';
 import { saveResultsToExports, type SavedExport } from './lib/export-store.js';
 import {
@@ -26,7 +26,14 @@ import {
   summarizeGlbLodSelection,
   type GlbLodCatalog,
 } from '../core/lodSelection.js';
-import type { AssetFile, ConvertPhase, ConvertResult, InspectResult } from '../shared/options.js';
+import type {
+  AssetFile,
+  ConvertOptions,
+  ConvertPhase,
+  ConvertResult,
+  DetailPin,
+  InspectResult,
+} from '../shared/options.js';
 import type { OptimizeChange, OptimizeResult } from '../core/optimize.js';
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
@@ -74,6 +81,11 @@ const lodSelector = document.getElementById('lod-selector') as HTMLElement;
 const lodSliderHost = document.getElementById('lod-slider-host') as HTMLElement;
 const wireframeInputBtn = document.getElementById('wireframe-input-btn') as HTMLButtonElement;
 const wireframeOutputBtn = document.getElementById('wireframe-output-btn') as HTMLButtonElement;
+const detailPinEditBtn = document.getElementById('detail-pin-edit-btn') as HTMLButtonElement;
+const detailPinPanel = document.getElementById('detail-pin-panel') as HTMLElement;
+const detailPinCount = document.getElementById('detail-pin-count') as HTMLElement;
+const detailPinList = document.getElementById('detail-pin-list') as HTMLUListElement;
+const detailPinClearBtn = document.getElementById('detail-pin-clear-btn') as HTMLButtonElement;
 const axisLockInput = document.getElementById('axis-lock-input') as HTMLElement;
 const axisLockOutput = document.getElementById('axis-lock-output') as HTMLElement;
 const autoRotateInputBtn = document.querySelector(
@@ -133,7 +145,7 @@ if (window.matchMedia('(max-width: 720px)').matches) {
 setMobilePane('input');
 setMobileQueueExpanded(false);
 
-function readOptions() {
+function readOptions(): ConvertOptions {
   return { ...settings.read(), ...profiles.read() };
 }
 
@@ -166,6 +178,8 @@ interface FileRow {
   id: string;
   file: File;
   files: File[];
+  detailPins: DetailPin[];
+  detailPinsDirty: boolean;
   /** Reuse the active preview parse instead of parsing large files again. */
   inspectPromise?: Promise<InspectResult>;
   /** Reuse the worker-normalized GLB when a row is focused again. */
@@ -186,8 +200,151 @@ interface FileRow {
 }
 const fileRows: FileRow[] = [];
 let activeId: string | null = null;
+let outputPinEntryId: string | null = null;
 let inputPreviewRequest = 0;
 let outputPreviewRequest = 0;
+
+function optimizationOptionsForEntry(entry: FileRow): ConvertOptions {
+  return {
+    ...readOptions(),
+    detailPins: entry.detailPins.map((pin) => ({
+      ...pin,
+      position: [...pin.position] as [number, number, number],
+    })),
+  };
+}
+
+function optimizationKeyForEntry(entry: FileRow): string {
+  return optimizationOptionsKey(optimizationOptionsForEntry(entry));
+}
+
+function detailPinEntry(): FileRow | undefined {
+  return outputPinEntryId
+    ? fileRows.find((candidate) => candidate.id === outputPinEntryId)
+    : undefined;
+}
+
+function setDetailPinEditMode(enabled: boolean): void {
+  const entry = detailPinEntry();
+  const profile = profiles.read();
+  const available =
+    Boolean(entry) && (profile.generateLODs ?? 0) > 0 && profile.mergeByMaterial !== true;
+  const next = enabled && available;
+  outputViewer.setDetailPinEditMode(next);
+  detailPinEditBtn.setAttribute('aria-pressed', String(next));
+  detailPinEditBtn.title = next
+    ? 'Detail pin edit mode on — click a mesh vertex to toggle it'
+    : 'Add or remove detail pins';
+  if (next) setMobilePane('output');
+  syncDetailPinUi();
+}
+
+function syncPreviewOptimizationLabel(): void {
+  const entry = activeId ? fileRows.find((candidate) => candidate.id === activeId) : undefined;
+  previewOptBtn.textContent = entry?.detailPinsDirty
+    ? 'Regenerate optimized preview'
+    : 'Generate optimized preview';
+}
+
+function syncDetailPinUi(): void {
+  const entry = detailPinEntry();
+  const profile = profiles.read();
+  const mergeEnabled = profile.mergeByMaterial === true;
+  const available = Boolean(entry) && (profile.generateLODs ?? 0) > 0 && !mergeEnabled;
+  detailPinEditBtn.disabled = !available;
+  detailPinEditBtn.title = mergeEnabled
+    ? 'Disable Merge by material to edit mesh-specific detail pins'
+    : available
+      ? outputViewer.isDetailPinEditMode()
+        ? 'Detail pin edit mode on — click a mesh vertex to toggle it'
+        : 'Add or remove detail pins'
+      : 'Generate an optimized preview with at least one LOD first';
+
+  const pins = entry?.detailPins ?? [];
+  detailPinCount.textContent = String(pins.length);
+  detailPinClearBtn.disabled = pins.length === 0;
+  detailPinPanel.hidden = !entry || (pins.length === 0 && !outputViewer.isDetailPinEditMode());
+  detailPinList.innerHTML = '';
+  for (const pin of pins) {
+    const item = document.createElement('li');
+    item.className = 'detail-pin-item';
+    item.title = `${pin.meshName} · ${pin.position.map((value) => value.toFixed(4)).join(', ')}`;
+    const level = document.createElement('span');
+    level.className = 'detail-pin-level';
+    level.textContent = `LOD${pin.lodLevel}+`;
+    const mesh = document.createElement('span');
+    mesh.className = 'detail-pin-mesh';
+    mesh.textContent = pin.meshName;
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'detail-pin-remove';
+    remove.textContent = '×';
+    remove.title = `Remove pin from ${pin.meshName}`;
+    remove.setAttribute('aria-label', `Remove LOD${pin.lodLevel} pin from ${pin.meshName}`);
+    remove.addEventListener('click', () => {
+      const owner = detailPinEntry();
+      if (owner) removeDetailPin(owner, pin.id);
+    });
+    item.append(level, mesh, remove);
+    detailPinList.append(item);
+  }
+  outputViewer.setDetailPins(pins);
+  syncPreviewOptimizationLabel();
+}
+
+function invalidatePinnedOptimization(entry: FileRow): void {
+  entry.optimizedPreview = undefined;
+  entry.optimizationReport = undefined;
+  entry.detailPinsDirty = true;
+  const row = queue.list().find((candidate) => candidate.id === entry.id);
+  if (row && (row.status === 'done' || row.status === 'error')) {
+    queue.update(entry.id, {
+      status: 'queued',
+      progress: 0,
+      phase: undefined,
+      result: undefined,
+      errorMessage: undefined,
+      selected: true,
+    });
+    syncSaveAllVisibility();
+  }
+  if (entry.id === activeId) hideStats();
+  syncDetailPinUi();
+}
+
+function removeDetailPin(entry: FileRow, pinId: string): void {
+  const next = entry.detailPins.filter((pin) => pin.id !== pinId);
+  if (next.length === entry.detailPins.length) return;
+  entry.detailPins = next;
+  invalidatePinnedOptimization(entry);
+}
+
+function toggleDetailPin(pick: DetailPinPick): void {
+  const entry = detailPinEntry();
+  if (!entry) return;
+  const existing = entry.detailPins.find((pin) => {
+    if (pin.meshKey !== pick.meshKey) return false;
+    const dx = pin.position[0] - pick.position[0];
+    const dy = pin.position[1] - pick.position[1];
+    const dz = pin.position[2] - pick.position[2];
+    return dx * dx + dy * dy + dz * dz < 1e-12;
+  });
+  if (existing) {
+    removeDetailPin(entry, existing.id);
+    toast(`Removed detail pin from ${pick.meshName}.`, 'ok');
+    return;
+  }
+  if (entry.detailPins.length >= 64) {
+    toast('A model can have up to 64 detail pins.', 'warn');
+    return;
+  }
+  entry.detailPins.push({
+    id: `pin_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+    ...pick,
+  });
+  invalidatePinnedOptimization(entry);
+  toast(`Pinned ${pick.meshName} from LOD${pick.lodLevel} through deeper levels.`, 'ok');
+}
 
 function syncFileLodLevels(
   entry: FileRow,
@@ -219,6 +376,11 @@ function syncAllFileLodLevels(generatedLods: number): void {
 
 profiles.onChange((options) => {
   syncAllFileLodLevels(options.generateLODs ?? 0);
+  if ((options.generateLODs ?? 0) === 0 || options.mergeByMaterial === true) {
+    setDetailPinEditMode(false);
+  } else {
+    syncDetailPinUi();
+  }
   renderActiveOptimizationReport();
 });
 
@@ -328,7 +490,14 @@ async function addFiles(files: File[]) {
   const added: FileRow[] = [];
   for (const group of groups) {
     const row = queue.add(group.primary);
-    const entry = { id: row.id, file: group.primary, files: group.files, sourceMaxLod: 0 };
+    const entry = {
+      id: row.id,
+      file: group.primary,
+      files: group.files,
+      detailPins: [],
+      detailPinsDirty: false,
+      sourceMaxLod: 0,
+    };
     fileRows.push(entry);
     added.push(entry);
     syncFileLodLevels(entry);
@@ -359,7 +528,10 @@ function trackInspection(
 function resetOutputPreview() {
   outputPreviewRequest++;
   outputLoading.hidden = true;
+  setDetailPinEditMode(false);
+  outputPinEntryId = null;
   outputViewer.clear();
+  outputViewer.setDetailPins([]);
   outputViewer.setAxisLock(null);
   outputViewer.setWireframe(false);
   wireframeOutputBtn.setAttribute('aria-pressed', 'false');
@@ -368,6 +540,7 @@ function resetOutputPreview() {
   showOutputLabel('Converted preview');
   hideStats();
   hideLodSelector(lodSelector, lodSliderHost);
+  syncDetailPinUi();
 }
 
 function replaceActiveFiles(files: File[]) {
@@ -390,6 +563,8 @@ function replaceActiveFiles(files: File[]) {
   entry.previewNormalizedPromise = undefined;
   entry.optimizedPreview = undefined;
   entry.optimizationReport = undefined;
+  entry.detailPins = [];
+  entry.detailPinsDirty = false;
   entry.sourceMaxLod = 0;
   queue.update(entry.id, {
     name: group.primary.name,
@@ -518,6 +693,7 @@ function focusRow(id: string) {
   activeId = id;
   queue.setActive(id);
   renderActiveOptimizationReport();
+  syncPreviewOptimizationLabel();
   const file = entry.file;
   const previewPromise = previewInput(entry, file);
   if (!queue.list().find((row) => row.id === entry.id)?.inspect) {
@@ -733,7 +909,7 @@ function renderActiveOptimizationReport(): void {
   const entry = activeId ? fileRows.find((candidate) => candidate.id === activeId) : undefined;
   const report = entry?.optimizationReport;
   const row = entry ? queue.list().find((candidate) => candidate.id === entry.id) : undefined;
-  if (!entry || !report || !row || report.key !== optimizationOptionsKey(readOptions())) {
+  if (!entry || !report || !row || report.key !== optimizationKeyForEntry(entry)) {
     hideStats();
     return;
   }
@@ -961,6 +1137,7 @@ queue.onRemoveOne((id) => {
   queue.remove(id);
   const i = fileRows.findIndex((e) => e.id === id);
   if (i >= 0) fileRows.splice(i, 1);
+  if (outputPinEntryId === id) resetOutputPreview();
   syncSaveAllVisibility();
   if (activeId === id) {
     inputPreviewRequest++;
@@ -1023,6 +1200,18 @@ function bindWireframeButton(btn: HTMLButtonElement, viewer: typeof inputViewer)
 bindWireframeButton(wireframeInputBtn, inputViewer);
 bindWireframeButton(wireframeOutputBtn, outputViewer);
 
+detailPinEditBtn.addEventListener('click', () => {
+  setDetailPinEditMode(!outputViewer.isDetailPinEditMode());
+});
+detailPinClearBtn.addEventListener('click', () => {
+  const entry = detailPinEntry();
+  if (!entry || entry.detailPins.length === 0) return;
+  entry.detailPins = [];
+  invalidatePinnedOptimization(entry);
+  toast('Removed all detail pins from this model.', 'ok');
+});
+outputViewer.onDetailPointPick(toggleDetailPin);
+
 // Axis view widgets — snap to repeatable world-axis views and disable orbit
 // rotation while locked so LOD comparisons stay visually stable.
 function bindAxisLock(group: HTMLElement, viewer: typeof inputViewer) {
@@ -1081,11 +1270,14 @@ function clearAll() {
   queue.clear();
   fileRows.length = 0;
   activeId = null;
+  outputPinEntryId = null;
+  setDetailPinEditMode(false);
   queueHost.hidden = true;
   setMobilePane('input');
   setMobileQueueExpanded(false);
   inputViewer.clear();
   outputViewer.clear();
+  outputViewer.setDetailPins([]);
   inputViewer.setAxisLock(null);
   outputViewer.setAxisLock(null);
   inputViewer.setWireframe(false);
@@ -1102,6 +1294,7 @@ function clearAll() {
   hideStats();
   hideLodSelector(lodSelector, lodSliderHost);
   queue.showSaveAllButton(false);
+  syncDetailPinUi();
 }
 
 /**
@@ -1137,7 +1330,7 @@ async function generateOptimizedPreview() {
 
   try {
     const { inspectGltf } = await import('@core');
-    const options = readOptions();
+    const options = optimizationOptionsForEntry(target);
     const cacheKey = optimizationOptionsKey(options);
     const normalized = await normalizedPreview(
       target,
@@ -1187,6 +1380,9 @@ async function generateOptimizedPreview() {
     updateProgress(1, 'Optimized preview ready');
     await nextPaint();
     finishOutputLoading(request);
+    outputPinEntryId = target.id;
+    target.detailPinsDirty = false;
+    syncDetailPinUi();
     updateOptimizationReport(target, before, result, cacheKey);
     if (result.changes.length === 0) {
       toast('Optimized preview ready · current settings made no changes.', 'ok');
@@ -1203,6 +1399,7 @@ async function generateOptimizedPreview() {
   } finally {
     finishOutputLoading(request);
     previewOptBtn.disabled = queue.list().length === 0;
+    syncPreviewOptimizationLabel();
   }
 }
 
@@ -1243,13 +1440,13 @@ async function convertAll() {
   addMoreBtn.disabled = true;
   if (masterCheck) masterCheck.disabled = true;
 
-  const options = readOptions();
-  const cacheKey = optimizationOptionsKey(options);
+  const baseOptions = readOptions();
   const itemProgress = new Map<string, number>(targets.map((row) => [row.id, 0]));
   const lastItemProgress = new Map<string, number>(targets.map((row) => [row.id, 0]));
   let autoPreview:
     | {
         data: Uint8Array;
+        entryId: string;
         label: string;
         lodLevels: number[];
       }
@@ -1270,6 +1467,14 @@ async function convertAll() {
     const entry = fileRows.find((candidate) => candidate.id === id);
     if (!entry) return;
     const sourceFile = entry.file;
+    const options: ConvertOptions = {
+      ...baseOptions,
+      detailPins: entry.detailPins.map((pin) => ({
+        ...pin,
+        position: [...pin.position] as [number, number, number],
+      })),
+    };
+    const cacheKey = optimizationOptionsKey(options);
     try {
       queue.update(entry.id, {
         status: 'converting',
@@ -1296,6 +1501,7 @@ async function convertAll() {
       let optimized: OptimizeResult | undefined;
       if (entry.optimizedPreview?.key === cacheKey) {
         optimized = entry.optimizedPreview.result;
+        entry.detailPinsDirty = false;
         preparedData = optimized.data;
         updateItemProgress(entry, 0.68, 'Reusing generated optimized model…');
       } else if (shouldOptimize) {
@@ -1307,6 +1513,7 @@ async function convertAll() {
         });
         if (entry.file !== sourceFile) throw new Error('Source model changed during conversion.');
         entry.optimizedPreview = { key: cacheKey, result: optimized };
+        entry.detailPinsDirty = false;
         preparedData = optimized.data;
       } else {
         updateItemProgress(entry, 0.68, 'Prepared model ready for export');
@@ -1348,6 +1555,7 @@ async function convertAll() {
       lastItemProgress.set(entry.id, 1);
       autoPreview ??= {
         data: preparedData,
+        entryId: entry.id,
         label: `Converted ${result.format.toUpperCase()} · ${result.filename}`,
         lodLevels: result.lodLevels ?? exportRow.selectedLods,
       };
@@ -1386,6 +1594,8 @@ async function convertAll() {
       updateOutputLoading(request, 0.995, 'Rendering converted preview…');
       await nextPaint();
       await previewGlb(autoPreview.data, autoPreview.label, request, autoPreview.lodLevels);
+      outputPinEntryId = autoPreview.entryId;
+      syncDetailPinUi();
       updateOutputLoading(
         request,
         1,

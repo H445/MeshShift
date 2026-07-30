@@ -277,6 +277,30 @@
               </button>
               <span class="axis-lock-separator" aria-hidden="true"></span>
               <button
+                class="icon-btn detail-pin-btn"
+                id="detail-pin-edit-btn"
+                title="Add or remove detail pins"
+                aria-label="Edit detail pins"
+                aria-pressed="false"
+                disabled
+              >
+                <svg
+                  width="17"
+                  height="17"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M12 22v-7" />
+                  <path d="m9 3 6 0 1 7-4 5-4-5z" />
+                  <path d="M8 10h8" />
+                </svg>
+              </button>
+              <button
                 class="icon-btn wireframe-btn"
                 id="wireframe-output-btn"
                 title="Toggle wireframe"
@@ -303,6 +327,28 @@
                 </svg>
               </button>
             </div>
+            <section class="detail-pin-panel" id="detail-pin-panel" hidden>
+              <header>
+                <div>
+                  <strong>Detail pins</strong>
+                  <span id="detail-pin-count">0</span>
+                </div>
+                <button
+                  type="button"
+                  class="detail-pin-clear"
+                  id="detail-pin-clear-btn"
+                  title="Remove every detail pin"
+                  disabled
+                >
+                  Clear
+                </button>
+              </header>
+              <p id="detail-pin-help">
+                Select a LOD, then click the mesh to lock its nearest vertex through deeper levels.
+                Click the same point or use × to remove it.
+              </p>
+              <ul id="detail-pin-list" aria-label="Pinned mesh points"></ul>
+            </section>
             <div class="viewer-empty">
               <p>Your converted asset will appear here</p>
               <p class="empty-sub">

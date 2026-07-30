@@ -16,10 +16,7 @@ import {
   meshoptDecimate,
   restoreCriticalVertices,
 } from '../src/core/optimize.js';
-import {
-  textureFilterRadius,
-  unwrapLodGeometry,
-} from '../src/core/lod-texture-baker.js';
+import { textureFilterRadius, unwrapLodGeometry } from '../src/core/lod-texture-baker.js';
 
 interface TopologyStats {
   boundaryEdges: number;
@@ -147,6 +144,33 @@ describe('topology-safe LOD decimation', () => {
       expect(level.geometry.attributes.normal.count).toBe(level.geometry.attributes.position.count);
       expect(level.geometry.attributes.uv.count).toBe(level.geometry.attributes.position.count);
       expect('data' in level.geometry.attributes.position).toBe(false);
+    }
+  });
+
+  it('keeps a pinned LOD1 vertex in every deeper generated level', async () => {
+    const source = new SphereGeometry(1, 16, 8);
+    const baseline = await generateLodGeometries(source, 1, [100]);
+    const baselinePosition = baseline[0].geometry.attributes.position;
+    const pin: [number, number, number] = [
+      baselinePosition.getX(0),
+      baselinePosition.getY(0),
+      baselinePosition.getZ(0),
+    ];
+    baseline[0].geometry.dispose();
+
+    const levels = await generateLodGeometries(source, 4, [100, 50, 24, 12], undefined, [
+      { lodLevel: 1, position: pin },
+    ]);
+    for (const level of levels) {
+      const position = level.geometry.attributes.position;
+      const containsPin = Array.from({ length: position.count }, (_, vertex) => vertex).some(
+        (vertex) =>
+          Math.abs(position.getX(vertex) - pin[0]) < 1e-7 &&
+          Math.abs(position.getY(vertex) - pin[1]) < 1e-7 &&
+          Math.abs(position.getZ(vertex) - pin[2]) < 1e-7,
+      );
+      expect(containsPin, `LOD${level.level} should retain the pinned point`).toBe(true);
+      level.geometry.dispose();
     }
   });
 

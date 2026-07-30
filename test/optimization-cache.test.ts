@@ -58,4 +58,28 @@ describe('optimized preview cache', () => {
     expect(usesOptimization({ maxTextureSize: 2048 }, 4096)).toBe(true);
     expect(usesOptimization({ maxTextureSize: 8192, generateLODs: 1 })).toBe(true);
   });
+
+  it('invalidates the optimized model when detail pins change', () => {
+    const pin = {
+      id: 'pin-a',
+      meshKey: 'mesh-0',
+      meshName: 'mesh',
+      lodLevel: 1,
+      position: [0, 1, 0] as [number, number, number],
+    };
+    expect(optimizationOptionsKey({ ...optimized, detailPins: [pin] })).not.toBe(
+      optimizationOptionsKey(optimized),
+    );
+    expect(
+      optimizationOptionsKey({
+        ...optimized,
+        detailPins: [pin, { ...pin, id: 'pin-b', position: [1, 0, 0] }],
+      }),
+    ).toBe(
+      optimizationOptionsKey({
+        ...optimized,
+        detailPins: [{ ...pin, id: 'pin-b', position: [1, 0, 0] }, pin],
+      }),
+    );
+  });
 });

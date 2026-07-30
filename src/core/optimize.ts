@@ -39,6 +39,7 @@ import {
   DEFAULT_DEEPEST_LOD_TRIANGLE_CAP,
   DEFAULT_LOD_TRIANGLE_RATIOS,
   type ConvertOptions,
+  type DetailPin,
   type InspectResult,
 } from '../shared/options.js';
 import { inspectGltf, inspectScene } from './inspect.js';
@@ -102,8 +103,11 @@ export interface CriticalVertexRepairResult {
   restoredVertices: number;
 }
 
+export type LodDetailPin = Pick<DetailPin, 'lodLevel' | 'position'>;
+
 /** Internal mesh record used during the pass. */
 interface MeshRecord {
+  key: string;
   mesh: import('three').Mesh | import('three').SkinnedMesh;
   before: number;
   /** High-detail projection source retained even when LOD0 is decimated. */
@@ -120,6 +124,7 @@ export async function generateLodGeometries(
   requestedLevels: number,
   lodTriangleTargets?: number[],
   onProgress?: (pct: number) => void,
+  detailPins: readonly LodDetailPin[] = [],
 ): Promise<GeneratedLodGeometry[]> {
   const levelCount = Math.max(0, Math.min(8, Math.floor(requestedLevels)));
   const sourceTriangles = source.index
@@ -173,7 +178,12 @@ export async function generateLodGeometries(
               MAX_LARGE_MESH_REPAIR_PROXY_TRIANGLES,
             );
           }
-          simplified = await meshoptDecimate(source, target, largeRepairProxy ?? undefined);
+          simplified = await meshoptDecimate(
+            source,
+            target,
+            largeRepairProxy ?? undefined,
+            detailPins.filter((pin) => pin.lodLevel <= level).map((pin) => pin.position),
+          );
         } catch {
           // Treat unsupported/pathological geometry as a safe plateau.
         }
@@ -1617,6 +1627,8 @@ export async function optimizeGltf(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const m = obj as any;
     if (m.isMesh && !m.isSkinnedMesh && m.geometry) {
+      const key = `mesh-${records.length}`;
+      m.userData = { ...m.userData, modelShiftMeshKey: key };
       const before = m.geometry.index
         ? m.geometry.index.count / 3
         : m.geometry.attributes.position.count / 3;
@@ -1628,7 +1640,7 @@ export async function optimizeGltf(
       // by the texture baker and repair scorer.
       const sourceGeometry =
         before > MAX_BROWSER_TEXTURE_BAKE_SOURCE_TRIANGLES ? m.geometry : m.geometry.clone();
-      records.push({ mesh: m, before: Math.round(before), sourceGeometry });
+      records.push({ key, mesh: m, before: Math.round(before), sourceGeometry });
     }
   });
   progress('optimize', 0);
@@ -1652,7 +1664,10 @@ export async function optimizeGltf(
       }
       let result: CriticalVertexRepairResult | null = null;
       try {
-        result = await meshoptDecimate(geo, maxTris);
+        const pinnedPoints = (opts.detailPins ?? [])
+          .filter((pin) => pin.meshKey === rec.key && pin.lodLevel <= 0)
+          .map((pin) => pin.position);
+        result = await meshoptDecimate(geo, maxTris, undefined, pinnedPoints);
       } catch (e) {
         changes.push({
           kind: 'decimate',
@@ -1743,6 +1758,7 @@ export async function optimizeGltf(
             const span = 0.55 / Math.max(1, records.length);
             progress('optimize', base + span * pct);
           },
+          (opts.detailPins ?? []).filter((pin) => pin.meshKey === rec.key),
         );
       } catch (error) {
         textureBaker?.dispose?.();
@@ -1850,6 +1866,10 @@ export async function optimizeGltf(
           lodMesh.geometry = lodGeometry;
           lodMesh.material = lodMaterial;
           lodMesh.name = `${rec.mesh.name || 'mesh'}_LOD${result.level}`;
+          lodMesh.userData = {
+            ...rec.mesh.userData,
+            modelShiftMeshKey: rec.key,
+          };
           lodMesh.position.copy(rec.mesh.position);
           lodMesh.rotation.copy(rec.mesh.rotation);
           lodMesh.scale.copy(rec.mesh.scale);
@@ -2465,12 +2485,63 @@ export function vertexClusteringDecimate(
  * back to representative original vertices. Textured meshes take a separate
  * UV-safe indexed path that preserves the original seam relationships.
  */
+function detailPinVertexLocks(
+  position: {
+    count: number;
+    getX(index: number): number;
+    getY(index: number): number;
+    getZ(index: number): number;
+  },
+  pinnedPoints: readonly [number, number, number][],
+): Uint8Array | null {
+  if (pinnedPoints.length === 0 || position.count === 0) return null;
+  const nearest = pinnedPoints.map(() => ({
+    distanceSquared: Number.POSITIVE_INFINITY,
+    x: 0,
+    y: 0,
+    z: 0,
+  }));
+  for (let vertex = 0; vertex < position.count; vertex++) {
+    const x = position.getX(vertex);
+    const y = position.getY(vertex);
+    const z = position.getZ(vertex);
+    for (let pinIndex = 0; pinIndex < pinnedPoints.length; pinIndex++) {
+      const pin = pinnedPoints[pinIndex];
+      const dx = x - pin[0];
+      const dy = y - pin[1];
+      const dz = z - pin[2];
+      const distanceSquared = dx * dx + dy * dy + dz * dz;
+      if (distanceSquared < nearest[pinIndex].distanceSquared) {
+        nearest[pinIndex] = { distanceSquared, x, y, z };
+      }
+    }
+  }
+
+  // Lock every UV-seam duplicate at the resolved position. Locking only one
+  // duplicate can still let the faces using its sibling collapse away.
+  const pinnedKeys = new Set(
+    nearest.map((point) => criticalPositionKey(point.x, point.y, point.z)),
+  );
+  const locks = new Uint8Array(position.count);
+  for (let vertex = 0; vertex < position.count; vertex++) {
+    if (
+      pinnedKeys.has(
+        criticalPositionKey(position.getX(vertex), position.getY(vertex), position.getZ(vertex)),
+      )
+    ) {
+      locks[vertex] = 1;
+    }
+  }
+  return locks;
+}
+
 export async function meshoptDecimate(
   src: import('three').BufferGeometry,
   targetTris: number,
   largeMeshRepairProxy?: import('three').BufferGeometry,
+  pinnedPoints: readonly [number, number, number][] = [],
 ): Promise<CriticalVertexRepairResult | null> {
-  const simplified = await meshoptDecimateRaw(src, targetTris);
+  const simplified = await meshoptDecimateRaw(src, targetTris, pinnedPoints);
   if (!simplified) return null;
   const sourceTriangles = src.index
     ? Math.floor(src.index.count / 3)
@@ -2491,6 +2562,7 @@ export async function meshoptDecimate(
 async function meshoptDecimateRaw(
   src: import('three').BufferGeometry,
   targetTris: number,
+  pinnedPoints: readonly [number, number, number][],
 ): Promise<{ geometry: import('three').BufferGeometry; triangleCount: number } | null> {
   const position = src.attributes.position;
   if (!position || src.groups.length > 1) return null;
@@ -2545,14 +2617,26 @@ async function meshoptDecimateRaw(
       // permissive pass, briefly duplicating most of the scan in memory even
       // though the fallback was immediately discarded.
       if (allowDeepPermissive) {
-        const permissive = await decimateIndexedUvMesh(src, sourceIndices, target, ['Permissive']);
+        const permissive = await decimateIndexedUvMesh(
+          src,
+          sourceIndices,
+          target,
+          ['Permissive'],
+          pinnedPoints,
+        );
         if (permissive && permissive.triangleCount < sourceTriangles) {
           return permissive;
         }
         if (permissive) retainLargeMeshFallback(permissive);
       }
 
-      const uvSafe = await decimateIndexedUvMesh(src, sourceIndices, target, ['LockBorder']);
+      const uvSafe = await decimateIndexedUvMesh(
+        src,
+        sourceIndices,
+        target,
+        ['LockBorder'],
+        pinnedPoints,
+      );
       if (uvSafe && uvSafe.triangleCount <= target) return uvSafe;
       if (uvSafe) retainLargeMeshFallback(uvSafe);
 
@@ -2564,13 +2648,13 @@ async function meshoptDecimateRaw(
         if (largeMeshFallback) return largeMeshFallback;
       }
     }
-    const attributeAware = await decimateWithAttributes(src, sourceIndices, target);
+    const attributeAware = await decimateWithAttributes(src, sourceIndices, target, pinnedPoints);
     if (attributeAware && (!allowDeepPermissive || attributeAware.triangleCount <= target)) {
       releaseLargeMeshFallback();
       return attributeAware;
     }
     if (attributeAware) retainLargeMeshFallback(attributeAware);
-    const uvSafe = await decimateIndexedUvMesh(src, sourceIndices, target);
+    const uvSafe = await decimateIndexedUvMesh(src, sourceIndices, target, [], pinnedPoints);
     if (uvSafe && (!allowDeepPermissive || uvSafe.triangleCount <= target)) {
       releaseLargeMeshFallback();
       return uvSafe;
@@ -2622,20 +2706,33 @@ async function meshoptDecimateRaw(
 
   const inputIndices = new Uint32Array(weldedIndices);
   const positions = new Float32Array(canonicalPositions);
+  const canonicalPositionAttribute = {
+    count: canonicalToOriginal.length,
+    getX: (index: number) => positions[index * 3],
+    getY: (index: number) => positions[index * 3 + 1],
+    getZ: (index: number) => positions[index * 3 + 2],
+  };
+  const vertexLocks = detailPinVertexLocks(canonicalPositionAttribute, pinnedPoints);
   const targetIndexCount = target * 3;
   // Start with a conservative error and relax it only when the requested
   // budget cannot be reached. This preserves detail at LOD1 while still
   // allowing genuinely tiny low-poly levels.
   let best: Uint32Array | null = null;
   for (const error of [0.02, 0.05, 0.1, 1]) {
-    const [indices] = MeshoptSimplifier.simplify(
-      inputIndices,
-      positions,
-      3,
-      targetIndexCount,
-      error,
-      [],
-    );
+    const [indices] = vertexLocks
+      ? MeshoptSimplifier.simplifyWithAttributes(
+          inputIndices,
+          positions,
+          3,
+          new Float32Array(),
+          0,
+          [],
+          vertexLocks,
+          targetIndexCount,
+          error,
+          [],
+        )
+      : MeshoptSimplifier.simplify(inputIndices, positions, 3, targetIndexCount, error, []);
     if (!best || indices.length < best.length) best = indices;
     if (indices.length <= targetIndexCount) break;
   }
@@ -2667,6 +2764,7 @@ async function decimateWithAttributes(
   source: import('three').BufferGeometry,
   sourceIndices: Uint32Array,
   target: number,
+  pinnedPoints: readonly [number, number, number][],
 ): Promise<{ geometry: import('three').BufferGeometry; triangleCount: number } | null> {
   await MeshoptSimplifier.ready;
   if (!MeshoptSimplifier.supported || !MeshoptSimplifier.simplifyWithUpdate) return null;
@@ -2742,6 +2840,13 @@ async function decimateWithAttributes(
           }
         }
       }
+    }
+  }
+  const detailLocks = detailPinVertexLocks(position, pinnedPoints);
+  if (detailLocks) {
+    vertexLock ??= new Uint8Array(position.count);
+    for (let vertex = 0; vertex < detailLocks.length; vertex++) {
+      if (detailLocks[vertex]) vertexLock[vertex] = 1;
     }
   }
 
@@ -2913,6 +3018,7 @@ async function decimateIndexedUvMesh(
   sourceIndices: Uint32Array,
   target: number,
   flags: SimplifierFlags[] = [],
+  pinnedPoints: readonly [number, number, number][] = [],
 ): Promise<{ geometry: import('three').BufferGeometry; triangleCount: number } | null> {
   await MeshoptSimplifier.ready;
   if (!MeshoptSimplifier.supported) return null;
@@ -2923,17 +3029,31 @@ async function decimateIndexedUvMesh(
     positionValues[i * 3 + 1] = positions.getY(i);
     positionValues[i * 3 + 2] = positions.getZ(i);
   }
+  const vertexLocks = detailPinVertexLocks(positions, pinnedPoints);
   const targetIndexCount = target * 3;
   let best: Uint32Array | null = null;
   for (const error of [0.02, 0.05, 0.1, 1]) {
-    const [indices] = MeshoptSimplifier.simplify(
-      sourceIndices,
-      positionValues,
-      3,
-      targetIndexCount,
-      error,
-      flags,
-    );
+    const [indices] = vertexLocks
+      ? MeshoptSimplifier.simplifyWithAttributes(
+          sourceIndices,
+          positionValues,
+          3,
+          new Float32Array(),
+          0,
+          [],
+          vertexLocks,
+          targetIndexCount,
+          error,
+          flags,
+        )
+      : MeshoptSimplifier.simplify(
+          sourceIndices,
+          positionValues,
+          3,
+          targetIndexCount,
+          error,
+          flags,
+        );
     if (!best || indices.length < best.length) best = indices;
     if (indices.length <= targetIndexCount) break;
   }

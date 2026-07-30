@@ -12,6 +12,14 @@ export function optimizationOptionsKey(options: ConvertOptions): string {
     mergeByMaterial: options.mergeByMaterial ?? false,
     generateLODs: options.generateLODs ?? 0,
     lodTriangleTargets: options.lodTriangleTargets ?? [],
+    detailPins: [...(options.detailPins ?? [])]
+      .sort((left, right) => left.id.localeCompare(right.id))
+      .map((pin) => ({
+        id: pin.id,
+        meshKey: pin.meshKey,
+        lodLevel: pin.lodLevel,
+        position: pin.position,
+      })),
   });
 }
 

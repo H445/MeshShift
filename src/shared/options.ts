@@ -12,6 +12,20 @@ export type TargetEngine = 'auto' | 'unity' | 'unreal' | 'godot';
 
 export type OutputFormat = 'fbx' | 'glb' | 'gltf' | 'obj' | 'stl' | 'ply' | 'dae';
 
+/** A user-selected mesh point that must survive LOD simplification. */
+export interface DetailPin {
+  /** Stable UI identifier used for removal and marker rendering. */
+  id: string;
+  /** Stable optimizer mesh identifier embedded in generated previews. */
+  meshKey: string;
+  /** Human-readable mesh name shown in the pin list. */
+  meshName: string;
+  /** First LOD that must retain this point; every deeper level inherits it. */
+  lodLevel: number;
+  /** Point in the source mesh's local coordinate system. */
+  position: [number, number, number];
+}
+
 export interface ConvertOptions {
   /** Output container/format. Default 'fbx' for backwards compatibility. */
   outputFormat?: OutputFormat;
@@ -47,6 +61,8 @@ export interface ConvertOptions {
   /** Optional per-LOD triangle targets, one absolute target per mesh.
    *  Missing/zero entries use the quality-focused automatic targets. */
   lodTriangleTargets?: number[];
+  /** Detail points locked from their selected LOD through every deeper level. */
+  detailPins?: DetailPin[];
 
   /** Optional progress callback. */
   onProgress?: (phase: ConvertPhase, pct: number) => void;
@@ -68,6 +84,7 @@ export const DEFAULT_OPTIONS: Required<Omit<ConvertOptions, 'onProgress' | 'targ
   mergeByMaterial: false,
   generateLODs: 0,
   lodTriangleTargets: [],
+  detailPins: [],
 };
 
 /** Quality-focused automatic targets as a fraction of source triangles. */

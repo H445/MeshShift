@@ -13,6 +13,14 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import type { DetailPin } from '../../shared/options.js';
+
+export interface DetailPinPick {
+  meshKey: string;
+  meshName: string;
+  lodLevel: number;
+  position: [number, number, number];
+}
 
 export interface ViewerHandle {
   setScene(root: THREE.Object3D): void;
@@ -33,6 +41,13 @@ export interface ViewerHandle {
   setAutoRotate(enabled: boolean): void;
   /** Returns whether idle auto-rotation is enabled. */
   isAutoRotate(): boolean;
+  /** Enable click-to-pin interaction and pause orbit controls while editing. */
+  setDetailPinEditMode(enabled: boolean): void;
+  isDetailPinEditMode(): boolean;
+  /** Render persistent pin markers over the solid or wireframe model. */
+  setDetailPins(pins: readonly DetailPin[]): void;
+  /** Subscribe to snapped mesh-vertex picks while detail-pin editing is active. */
+  onDetailPointPick(listener: (pick: DetailPinPick) => void): () => void;
 }
 
 export type ViewerAxis = 'x' | 'y' | 'z' | null;
@@ -92,6 +107,13 @@ export function createViewer(canvas: HTMLCanvasElement): ViewerHandle {
   // Content root — we put the FBX / GLTF scene here.
   const root = new THREE.Group();
   scene.add(root);
+  let detailPins: readonly DetailPin[] = [];
+  let detailPinEditMode = false;
+  let detailPinMarkers: THREE.Group | null = null;
+  const detailPointListeners = new Set<(pick: DetailPinPick) => void>();
+  const pinRaycaster = new THREE.Raycaster();
+  const pinPointer = new THREE.Vector2();
+  let pinPointerStart: { x: number; y: number } | null = null;
 
   // Wireframe state — toggled by setWireframe(). Applied to every
   // material on every setScene() so the new scene picks up the state.
@@ -99,6 +121,7 @@ export function createViewer(canvas: HTMLCanvasElement): ViewerHandle {
   function applyWireframe(scope: THREE.Object3D) {
     scope.traverse((c) => {
       const m = c as THREE.Mesh;
+      if (m.userData.__detailPinMarker) return;
       if (!m.material) return;
       const mats = Array.isArray(m.material) ? m.material : [m.material];
       for (const mat of mats) {
@@ -107,6 +130,58 @@ export function createViewer(canvas: HTMLCanvasElement): ViewerHandle {
         mat.needsUpdate = true;
       }
     });
+  }
+
+  function disposeDetailPinMarkers(): void {
+    if (!detailPinMarkers) return;
+    root.remove(detailPinMarkers);
+    disposeObject(detailPinMarkers);
+    detailPinMarkers = null;
+  }
+
+  function refreshDetailPinMarkers(): void {
+    disposeDetailPinMarkers();
+    if (detailPins.length === 0 || root.children.length === 0) return;
+    root.updateWorldMatrix(true, true);
+    const contentBounds = new THREE.Box3();
+    for (const child of root.children) contentBounds.expandByObject(child);
+    const size = contentBounds.getSize(new THREE.Vector3());
+    const markerRadius = Math.max(1e-5, Math.max(size.x, size.y, size.z) * 0.012);
+    const markers = new THREE.Group();
+    markers.name = 'ModelShift detail pins';
+    markers.userData.__detailPinMarker = true;
+
+    for (const pin of detailPins) {
+      const candidateMeshes: THREE.Mesh[] = [];
+      root.traverse((object) => {
+        if ((object as THREE.Mesh).isMesh && object.userData.modelShiftMeshKey === pin.meshKey) {
+          candidateMeshes.push(object as THREE.Mesh);
+        }
+      });
+      const targetMesh =
+        candidateMeshes.find((mesh) => !mesh.name.match(/_LOD\d+$/i)) ?? candidateMeshes[0];
+      if (!targetMesh) continue;
+
+      const localPoint = new THREE.Vector3(...pin.position);
+      const rootPoint = root.worldToLocal(targetMesh.localToWorld(localPoint));
+      const marker = new THREE.Mesh(
+        new THREE.SphereGeometry(markerRadius, 12, 8),
+        new THREE.MeshBasicMaterial({
+          color: 0x39c5ff,
+          depthTest: false,
+          depthWrite: false,
+          toneMapped: false,
+        }),
+      );
+      marker.position.copy(rootPoint);
+      marker.renderOrder = 10_000;
+      marker.name = `Detail pin ${pin.id}`;
+      marker.userData.__detailPinMarker = true;
+      marker.userData.detailPinId = pin.id;
+      markers.add(marker);
+    }
+    detailPinMarkers = markers;
+    root.add(markers);
   }
 
   // --- Idle auto-rotation ------------------------------------------------
@@ -119,14 +194,73 @@ export function createViewer(canvas: HTMLCanvasElement): ViewerHandle {
     autoRotate = false;
     lastUserInteraction = performance.now();
   }
-  function handlePointerDown() {
+  function handlePointerDown(event: PointerEvent) {
+    if (detailPinEditMode) {
+      pinPointerStart = { x: event.clientX, y: event.clientY };
+      return;
+    }
     // A lock is an audit pose, not a drag trap. The first orbit gesture
     // immediately returns this viewer to free rotation.
     if (axisLock !== null) setAxisLock(null);
     notifyUser();
   }
+  function handlePointerUp(event: PointerEvent): void {
+    if (!detailPinEditMode || !pinPointerStart) return;
+    const moved = Math.hypot(event.clientX - pinPointerStart.x, event.clientY - pinPointerStart.y);
+    pinPointerStart = null;
+    if (moved > 5) return;
+
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+    pinPointer.set(
+      ((event.clientX - rect.left) / rect.width) * 2 - 1,
+      -((event.clientY - rect.top) / rect.height) * 2 + 1,
+    );
+    pinRaycaster.setFromCamera(pinPointer, camera);
+    const hit = pinRaycaster
+      .intersectObjects(root.children, true)
+      .find(
+        (intersection) =>
+          (intersection.object as THREE.Mesh).isMesh &&
+          intersection.object.visible &&
+          !intersection.object.userData.__detailPinMarker &&
+          typeof intersection.object.userData.modelShiftMeshKey === 'string',
+      );
+    const mesh = hit?.object as THREE.Mesh | undefined;
+    const face = hit?.face;
+    const position = mesh?.geometry?.attributes.position;
+    if (!hit || !mesh || !face || !position) return;
+
+    const hitLocal = mesh.worldToLocal(hit.point.clone());
+    const vertices = [face.a, face.b, face.c];
+    let nearestVertex = vertices[0];
+    let nearestDistance = Number.POSITIVE_INFINITY;
+    for (const vertex of vertices) {
+      const dx = position.getX(vertex) - hitLocal.x;
+      const dy = position.getY(vertex) - hitLocal.y;
+      const dz = position.getZ(vertex) - hitLocal.z;
+      const distance = dx * dx + dy * dy + dz * dz;
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        nearestVertex = vertex;
+      }
+    }
+    const lodMatch = /_LOD(\d+)$/i.exec(mesh.name);
+    const pick: DetailPinPick = {
+      meshKey: mesh.userData.modelShiftMeshKey as string,
+      meshName: mesh.name.replace(/_LOD\d+$/i, '') || 'mesh',
+      lodLevel: lodMatch ? Number(lodMatch[1]) : 0,
+      position: [
+        position.getX(nearestVertex),
+        position.getY(nearestVertex),
+        position.getZ(nearestVertex),
+      ],
+    };
+    for (const listener of detailPointListeners) listener(pick);
+  }
   controls.addEventListener('start', notifyUser);
   canvas.addEventListener('pointerdown', handlePointerDown, { capture: true });
+  canvas.addEventListener('pointerup', handlePointerUp, { capture: true });
   canvas.addEventListener('wheel', notifyUser, { passive: true });
   canvas.addEventListener('touchstart', notifyUser, { passive: true });
   const idleTimer = window.setInterval(() => {
@@ -221,6 +355,7 @@ export function createViewer(canvas: HTMLCanvasElement): ViewerHandle {
 
   return {
     setScene(sceneToShow: THREE.Object3D) {
+      disposeDetailPinMarkers();
       while (root.children.length) {
         const c = root.children[0];
         root.remove(c);
@@ -278,6 +413,7 @@ export function createViewer(canvas: HTMLCanvasElement): ViewerHandle {
       root.add(sceneToShow);
       // Apply the current wireframe state to the new scene's materials.
       applyWireframe(sceneToShow);
+      refreshDetailPinMarkers();
       frameContent(axisLock);
     },
     setAxisLock,
@@ -304,7 +440,32 @@ export function createViewer(canvas: HTMLCanvasElement): ViewerHandle {
     isAutoRotate() {
       return autoRotateEnabled;
     },
+    setDetailPinEditMode(enabled: boolean) {
+      detailPinEditMode = enabled;
+      pinPointerStart = null;
+      controls.enabled = !enabled;
+      canvas.classList.toggle('detail-pin-editing', enabled);
+      if (enabled) {
+        autoRotate = false;
+        lastUserInteraction = performance.now();
+      }
+    },
+    isDetailPinEditMode() {
+      return detailPinEditMode;
+    },
+    setDetailPins(pins: readonly DetailPin[]) {
+      detailPins = pins.map((pin) => ({
+        ...pin,
+        position: [...pin.position] as [number, number, number],
+      }));
+      refreshDetailPinMarkers();
+    },
+    onDetailPointPick(listener) {
+      detailPointListeners.add(listener);
+      return () => detailPointListeners.delete(listener);
+    },
     clear() {
+      disposeDetailPinMarkers();
       while (root.children.length) {
         const c = root.children[0];
         root.remove(c);
@@ -318,6 +479,7 @@ export function createViewer(canvas: HTMLCanvasElement): ViewerHandle {
       ro.disconnect();
       controls.removeEventListener('start', notifyUser);
       canvas.removeEventListener('pointerdown', handlePointerDown, true);
+      canvas.removeEventListener('pointerup', handlePointerUp, true);
       canvas.removeEventListener('wheel', notifyUser);
       canvas.removeEventListener('touchstart', notifyUser);
       disposeObject(root);
@@ -326,6 +488,7 @@ export function createViewer(canvas: HTMLCanvasElement): ViewerHandle {
       controls.dispose();
       renderer.dispose();
       axisLockListeners.clear();
+      detailPointListeners.clear();
     },
   };
 }
