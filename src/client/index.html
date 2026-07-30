@@ -53,7 +53,29 @@
         </div>
       </header>
 
-      <main class="layout">
+      <main class="layout" id="preview-layout" data-mobile-pane="input">
+        <nav class="mobile-pane-tabs" role="tablist" aria-label="Preview">
+          <button
+            type="button"
+            class="mobile-pane-tab"
+            role="tab"
+            aria-controls="pane-input"
+            aria-selected="true"
+            data-mobile-pane-target="input"
+          >
+            Input
+          </button>
+          <button
+            type="button"
+            class="mobile-pane-tab"
+            role="tab"
+            aria-controls="pane-output"
+            aria-selected="false"
+            data-mobile-pane-target="output"
+          >
+            Output
+          </button>
+        </nav>
         <section class="pane" id="pane-input">
           <header class="pane-header">
             <h2>Input</h2>
@@ -338,6 +360,26 @@
             <h2>Files <span class="queue-count" id="queue-count">0</span></h2>
             <div class="queue-global-lods" id="queue-global-lods" hidden></div>
           </div>
+          <button
+            type="button"
+            class="queue-mobile-toggle"
+            id="queue-mobile-toggle"
+            aria-controls="queue-list"
+            aria-expanded="false"
+          >
+            <span id="queue-mobile-toggle-label">Open</span>
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              aria-hidden="true"
+            >
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </button>
           <div class="queue-actions">
             <button class="btn btn-secondary" id="load-btn" title="Replace the active model">
               Load

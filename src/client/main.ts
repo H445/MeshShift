@@ -53,10 +53,20 @@ const convertAllBtn = document.getElementById('convert-all-btn') as HTMLButtonEl
 const clearBtn = document.getElementById('clear-btn') as HTMLButtonElement;
 const saveAllBtn = document.getElementById('save-all-btn') as HTMLButtonElement;
 const masterCheck = document.getElementById('master-check') as HTMLInputElement | null;
-const statsPanel = document.getElementById('stats-panel') as HTMLElement;
+const statsPanel = document.getElementById('stats-panel') as HTMLDetailsElement;
 const statsGrid = document.getElementById('stats-grid') as HTMLElement;
 const statsChangesWrap = document.getElementById('stats-changes-wrap') as HTMLElement;
 const statsChanges = document.getElementById('stats-changes') as HTMLElement;
+const previewLayout = document.getElementById('preview-layout') as HTMLElement;
+const mobilePaneTabs = Array.from(
+  document.querySelectorAll<HTMLButtonElement>('[data-mobile-pane-target]'),
+);
+const queueMobileToggle = document.getElementById(
+  'queue-mobile-toggle',
+) as HTMLButtonElement;
+const queueMobileToggleLabel = document.getElementById(
+  'queue-mobile-toggle-label',
+) as HTMLElement;
 const lodSelector = document.getElementById('lod-selector') as HTMLElement;
 const lodSliderHost = document.getElementById('lod-slider-host') as HTMLElement;
 const wireframeInputBtn = document.getElementById('wireframe-input-btn') as HTMLButtonElement;
@@ -74,6 +84,51 @@ const inputViewer = createViewer(inputCanvas);
 const outputViewer = createViewer(outputCanvas);
 const settings = createSettings();
 const profiles = createProfiles();
+
+type MobilePane = 'input' | 'output';
+
+function setMobilePane(pane: MobilePane): void {
+  previewLayout.dataset.mobilePane = pane;
+  for (const tab of mobilePaneTabs) {
+    const selected = tab.dataset.mobilePaneTarget === pane;
+    tab.setAttribute('aria-selected', String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+  }
+  requestAnimationFrame(() => {
+    inputViewer.resize();
+    outputViewer.resize();
+  });
+}
+
+for (const [index, tab] of mobilePaneTabs.entries()) {
+  tab.addEventListener('click', () => {
+    setMobilePane(tab.dataset.mobilePaneTarget as MobilePane);
+  });
+  tab.addEventListener('keydown', (event) => {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+    event.preventDefault();
+    const offset = event.key === 'ArrowRight' ? 1 : -1;
+    const next = mobilePaneTabs[(index + offset + mobilePaneTabs.length) % mobilePaneTabs.length];
+    next.focus();
+    setMobilePane(next.dataset.mobilePaneTarget as MobilePane);
+  });
+}
+
+function setMobileQueueExpanded(expanded: boolean): void {
+  queueHost.classList.toggle('mobile-expanded', expanded);
+  queueMobileToggle.setAttribute('aria-expanded', String(expanded));
+  queueMobileToggleLabel.textContent = expanded ? 'Close' : 'Open';
+}
+
+queueMobileToggle.addEventListener('click', () => {
+  setMobileQueueExpanded(queueMobileToggle.getAttribute('aria-expanded') !== 'true');
+});
+
+if (window.matchMedia('(max-width: 720px)').matches) {
+  statsPanel.open = false;
+}
+setMobilePane('input');
+setMobileQueueExpanded(false);
 
 function readOptions() {
   return { ...settings.read(), ...profiles.read() };
@@ -379,6 +434,8 @@ function beginOutputLoading(
   title: string,
   detail = 'Preparing source model…',
 ): void {
+  setMobilePane('output');
+  setMobileQueueExpanded(false);
   outputLoadingTitle.textContent = title;
   updateOutputLoading(request, 0, detail);
 }
@@ -442,6 +499,8 @@ function parsePreviewGlb(data: Uint8Array): Promise<GLTF> {
 function focusRow(id: string) {
   const entry = fileRows.find((e) => e.id === id);
   if (!entry) return;
+  setMobilePane('input');
+  setMobileQueueExpanded(false);
   if (activeId !== id) cancelPreviewNormalizations();
   activeId = id;
   queue.setActive(id);
@@ -900,6 +959,8 @@ function clearAll() {
   fileRows.length = 0;
   activeId = null;
   queueHost.hidden = true;
+  setMobilePane('input');
+  setMobileQueueExpanded(false);
   inputViewer.clear();
   outputViewer.clear();
   inputViewer.setAxisLock(null);
