@@ -1214,7 +1214,7 @@ outputViewer.onDetailPointPick(toggleDetailPin);
 
 // Axis view widgets — snap to repeatable world-axis views and disable orbit
 // rotation while locked so LOD comparisons stay visually stable.
-function bindAxisLock(group: HTMLElement, viewer: typeof inputViewer) {
+function bindAxisLock(group: HTMLElement, viewer: typeof inputViewer, onFree?: () => void) {
   const buttons = Array.from(group.querySelectorAll<HTMLButtonElement>('[data-view-axis]'));
   function sync() {
     const active = viewer.getAxisLock();
@@ -1230,6 +1230,7 @@ function bindAxisLock(group: HTMLElement, viewer: typeof inputViewer) {
     if (!button || !group.contains(button)) return;
     const value = button.dataset.viewAxis;
     const axis: ViewerAxis = value === 'x' || value === 'y' || value === 'z' ? value : null;
+    if (axis === null) onFree?.();
     viewer.setAxisLock(axis);
     sync();
   });
@@ -1237,7 +1238,7 @@ function bindAxisLock(group: HTMLElement, viewer: typeof inputViewer) {
   sync();
 }
 bindAxisLock(axisLockInput, inputViewer);
-bindAxisLock(axisLockOutput, outputViewer);
+bindAxisLock(axisLockOutput, outputViewer, () => setDetailPinEditMode(false));
 
 function bindAutoRotateButton(btn: HTMLButtonElement, viewer: typeof inputViewer) {
   function sync() {
