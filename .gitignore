@@ -20,3 +20,6 @@ Desktop.ini
 
 /exports/*
 !/exports/.gitkeep
+
+# Local social-account credentials; never commit.
+/SOCIAL_ACCOUNTS.local.md
