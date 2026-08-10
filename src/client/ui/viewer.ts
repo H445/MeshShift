@@ -29,6 +29,8 @@ export interface ViewerFrameSample {
 
 export interface ViewerHandle {
   setScene(root: THREE.Object3D): void;
+  /** Render the current scene into a regular 2D canvas for a lightweight snapshot. */
+  captureSnapshot(targetCanvas: HTMLCanvasElement): boolean;
   clear(): void;
   resize(): void;
   dispose(): void;
@@ -482,6 +484,7 @@ export function createViewer(canvas: HTMLCanvasElement): ViewerHandle {
   return {
     setScene(sceneToShow: THREE.Object3D) {
       disposeDetailPinMarkers();
+      disposeDetailPinHoverMarker();
       while (root.children.length) {
         const c = root.children[0];
         root.remove(c);
@@ -541,6 +544,20 @@ export function createViewer(canvas: HTMLCanvasElement): ViewerHandle {
       applyWireframe(sceneToShow);
       refreshDetailPinMarkers();
       frameContent(axisLock);
+    },
+    captureSnapshot(targetCanvas: HTMLCanvasElement) {
+      if (root.children.length === 0) return false;
+      handleResize();
+      if (renderer.domElement.width === 0 || renderer.domElement.height === 0) return false;
+      controls.update();
+      renderer.render(scene, camera);
+      const context = targetCanvas.getContext('2d');
+      if (!context) return false;
+      targetCanvas.width = renderer.domElement.width;
+      targetCanvas.height = renderer.domElement.height;
+      context.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
+      context.drawImage(renderer.domElement, 0, 0, targetCanvas.width, targetCanvas.height);
+      return true;
     },
     setAxisLock,
     getAxisLock() {

@@ -56,7 +56,12 @@
         </div>
       </header>
 
-      <main class="layout" id="preview-layout" data-mobile-pane="input">
+      <main
+        class="layout"
+        id="preview-layout"
+        data-mobile-pane="input"
+        data-input-preview-mode="2d"
+      >
         <nav class="mobile-pane-tabs" role="tablist" aria-label="Preview">
           <button
             type="button"
@@ -82,7 +87,29 @@
         <section class="pane" id="pane-input">
           <header class="pane-header">
             <h2>Input</h2>
-            <span class="pane-sub">3D asset preview</span>
+            <span class="pane-sub" id="input-preview-label">2D asset snapshot</span>
+            <button
+              type="button"
+              class="input-restore-btn"
+              id="input-restore-btn"
+              aria-label="Show input preview"
+              title="Show the input preview"
+              hidden
+            >
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="m9 18 6-6-6-6" />
+              </svg>
+            </button>
           </header>
           <div class="viewer-host" id="viewer-input">
             <div
@@ -91,10 +118,11 @@
               role="group"
               aria-label="Input view controls"
             >
-              <span class="axis-lock-label">View</span>
+              <span class="axis-lock-label" data-input-3d-control>View</span>
               <button
                 type="button"
-                class="axis-btn auto-rotate-btn"
+                class="axis-btn auto-rotate-btn input-3d-control"
+                data-input-3d-control
                 data-auto-rotate
                 aria-pressed="true"
                 title="Toggle idle auto-rotation"
@@ -103,7 +131,8 @@
               </button>
               <button
                 type="button"
-                class="axis-btn"
+                class="axis-btn input-3d-control"
+                data-input-3d-control
                 data-view-axis="free"
                 aria-pressed="true"
                 title="Free orbit"
@@ -112,7 +141,8 @@
               </button>
               <button
                 type="button"
-                class="axis-btn axis-x"
+                class="axis-btn axis-x input-3d-control"
+                data-input-3d-control
                 data-view-axis="x"
                 aria-pressed="false"
                 title="Lock to X axis (right view)"
@@ -121,7 +151,8 @@
               </button>
               <button
                 type="button"
-                class="axis-btn axis-y"
+                class="axis-btn axis-y input-3d-control"
+                data-input-3d-control
                 data-view-axis="y"
                 aria-pressed="false"
                 title="Lock to Y axis (top view)"
@@ -130,17 +161,23 @@
               </button>
               <button
                 type="button"
-                class="axis-btn axis-z"
+                class="axis-btn axis-z input-3d-control"
+                data-input-3d-control
                 data-view-axis="z"
                 aria-pressed="false"
                 title="Lock to Z axis (front view)"
               >
                 Z
               </button>
-              <span class="axis-lock-separator" aria-hidden="true"></span>
+              <span
+                class="axis-lock-separator input-3d-control"
+                data-input-3d-control
+                aria-hidden="true"
+              ></span>
               <button
                 type="button"
-                class="icon-btn wireframe-btn"
+                class="icon-btn wireframe-btn input-3d-control"
+                data-input-3d-control
                 id="wireframe-input-btn"
                 title="Toggle wireframe"
                 aria-label="Toggle wireframe"
@@ -165,6 +202,35 @@
                   <path d="M21 5l0 14" />
                 </svg>
               </button>
+              <div class="preview-mode-toggle" role="group" aria-label="Input preview mode">
+                <button
+                  type="button"
+                  class="axis-btn preview-mode-btn"
+                  id="input-mode-2d-btn"
+                  aria-pressed="true"
+                  title="2D snapshot mode is on"
+                >
+                  2D
+                </button>
+                <button
+                  type="button"
+                  class="axis-btn preview-mode-btn"
+                  id="input-mode-3d-btn"
+                  aria-pressed="false"
+                  title="Switch to interactive 3D preview"
+                >
+                  3D
+                </button>
+                <button
+                  type="button"
+                  class="axis-btn preview-mode-btn"
+                  id="input-mode-off-btn"
+                  aria-pressed="false"
+                  title="Hide the input preview"
+                >
+                  Off
+                </button>
+              </div>
             </div>
             <div class="viewer-empty">
               <div class="empty-art" aria-hidden="true">
@@ -216,6 +282,12 @@
                 <span class="viewer-loading-percent" id="input-loading-percent">0%</span>
               </div>
             </div>
+            <canvas
+              id="canvas-input-snapshot"
+              class="input-snapshot"
+              aria-label="2D snapshot of the input asset"
+              hidden
+            ></canvas>
             <canvas id="canvas-input" hidden></canvas>
           </div>
         </section>

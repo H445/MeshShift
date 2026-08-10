@@ -38,9 +38,11 @@ import type { OptimizeChange, OptimizeResult } from '../core/optimize.js';
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
 const inputCanvas = document.getElementById('canvas-input') as HTMLCanvasElement;
+const inputSnapshotCanvas = document.getElementById('canvas-input-snapshot') as HTMLCanvasElement;
 const outputCanvas = document.getElementById('canvas-output') as HTMLCanvasElement;
 const inputEmpty = document.querySelector('#viewer-input .viewer-empty') as HTMLElement;
 const outputEmpty = document.querySelector('#viewer-output .viewer-empty') as HTMLElement;
+const inputPreviewLabel = document.getElementById('input-preview-label') as HTMLElement;
 const inputLoading = document.getElementById('input-loading') as HTMLElement;
 const inputLoadingTitle = document.getElementById('input-loading-title') as HTMLElement;
 const inputLoadingDetail = document.getElementById('input-loading-detail') as HTMLElement;
@@ -86,6 +88,13 @@ const detailPinPanel = document.getElementById('detail-pin-panel') as HTMLElemen
 const detailPinCount = document.getElementById('detail-pin-count') as HTMLElement;
 const detailPinList = document.getElementById('detail-pin-list') as HTMLUListElement;
 const detailPinClearBtn = document.getElementById('detail-pin-clear-btn') as HTMLButtonElement;
+const inputMode2dBtn = document.getElementById('input-mode-2d-btn') as HTMLButtonElement;
+const inputMode3dBtn = document.getElementById('input-mode-3d-btn') as HTMLButtonElement;
+const inputModeOffBtn = document.getElementById('input-mode-off-btn') as HTMLButtonElement;
+const inputRestoreBtn = document.getElementById('input-restore-btn') as HTMLButtonElement;
+const input3dControls = Array.from(
+  document.querySelectorAll<HTMLElement>('[data-input-3d-control]'),
+);
 const axisLockInput = document.getElementById('axis-lock-input') as HTMLElement;
 const axisLockOutput = document.getElementById('axis-lock-output') as HTMLElement;
 const autoRotateInputBtn = document.querySelector(
@@ -101,8 +110,97 @@ const settings = createSettings();
 const profiles = createProfiles();
 
 type MobilePane = 'input' | 'output';
+type InputPreviewMode = '2d' | '3d' | 'off';
+let inputPreviewMode: InputPreviewMode = '2d';
+
+function clearInputSnapshot(): void {
+  inputSnapshotCanvas.width = 0;
+  inputSnapshotCanvas.height = 0;
+  inputSnapshotCanvas.hidden = true;
+}
+
+function syncInputPreviewModeControls(): void {
+  const is2d = inputPreviewMode === '2d';
+  const is3d = inputPreviewMode === '3d';
+  const isOff = inputPreviewMode === 'off';
+  previewLayout.dataset.inputPreviewMode = inputPreviewMode;
+  inputMode2dBtn.setAttribute('aria-pressed', String(is2d));
+  inputMode3dBtn.setAttribute('aria-pressed', String(is3d));
+  inputModeOffBtn.setAttribute('aria-pressed', String(isOff));
+  inputMode2dBtn.title = is2d ? '2D snapshot mode is on' : 'Switch to a lightweight 2D snapshot';
+  inputMode3dBtn.title = is3d ? '3D orbit mode is on' : 'Switch to interactive 3D preview';
+  inputModeOffBtn.title = isOff ? 'Input preview is off' : 'Hide the input preview';
+  inputPreviewLabel.textContent = is2d
+    ? '2D asset snapshot'
+    : is3d
+      ? '3D asset preview'
+      : 'Input preview off';
+  inputRestoreBtn.hidden = !isOff;
+  inputRestoreBtn.title = 'Show the input preview';
+  wireframeInputBtn.hidden = !is3d;
+  for (const control of input3dControls) control.hidden = !is3d;
+}
+
+function setInputPreviewMode(mode: InputPreviewMode, syncMobilePane = true): void {
+  if (inputPreviewMode === mode) {
+    syncInputPreviewModeControls();
+    return;
+  }
+  inputPreviewMode = mode;
+  syncInputPreviewModeControls();
+
+  const entry = activeId ? fileRows.find((candidate) => candidate.id === activeId) : undefined;
+  if (!entry) {
+    inputViewer.clear();
+    inputCanvas.hidden = true;
+    clearInputSnapshot();
+    return;
+  }
+
+  inputPreviewRequest++;
+  if (mode === 'off') {
+    inputViewer.clear();
+    inputCanvas.hidden = true;
+    clearInputSnapshot();
+    if (syncMobilePane && window.matchMedia?.('(max-width: 720px)').matches) {
+      setMobilePane('output');
+    }
+    return;
+  }
+  if (syncMobilePane && window.matchMedia?.('(max-width: 720px)').matches) {
+    setMobilePane('input');
+  }
+  if (mode === '2d' && !inputCanvas.hidden) {
+    const captured = inputViewer.captureSnapshot(inputSnapshotCanvas);
+    inputViewer.clear();
+    inputCanvas.hidden = true;
+    inputSnapshotCanvas.hidden = !captured;
+    if (captured) return;
+  }
+
+  inputViewer.clear();
+  inputCanvas.hidden = mode === '2d';
+  if (mode === '3d') clearInputSnapshot();
+  else inputSnapshotCanvas.hidden = false;
+  void previewInput(entry, entry.file).catch(() => {
+    // The preview callback already reports its own error.
+  });
+}
+
+inputMode2dBtn.addEventListener('click', () => setInputPreviewMode('2d'));
+inputMode3dBtn.addEventListener('click', () => setInputPreviewMode('3d'));
+inputModeOffBtn.addEventListener('click', () => setInputPreviewMode('off'));
+inputRestoreBtn.addEventListener('click', () => setInputPreviewMode('2d'));
+syncInputPreviewModeControls();
 
 function setMobilePane(pane: MobilePane): void {
+  if (window.matchMedia?.('(max-width: 720px)').matches) {
+    if (pane === 'output' && inputPreviewMode !== 'off') {
+      setInputPreviewMode('off', false);
+    } else if (pane === 'input' && inputPreviewMode === 'off') {
+      setInputPreviewMode('2d', false);
+    }
+  }
   previewLayout.dataset.mobilePane = pane;
   for (const tab of mobilePaneTabs) {
     const selected = tab.dataset.mobilePaneTarget === pane;
@@ -244,8 +342,8 @@ inputViewer.onPerformanceSample((sample) => {
         return undefined;
       }
       const gltf = await parsePreviewGlb(optimized.data);
-      if (activeId !== entry.id) return undefined;
-      inputViewer.setScene(gltf.scene);
+      if (activeId !== entry.id || inputPreviewRequest !== request) return undefined;
+      await renderInputScene(gltf.scene, request);
       return optimized;
     })
     .then((result) => {
@@ -764,6 +862,21 @@ function parsePreviewGlb(data: Uint8Array): Promise<GLTF> {
   });
 }
 
+async function renderInputScene(scene: GLTF['scene'], request?: number): Promise<void> {
+  inputEmpty.hidden = true;
+  inputCanvas.hidden = false;
+  inputSnapshotCanvas.hidden = true;
+  inputViewer.setScene(scene);
+  await nextPaint();
+  if (request !== undefined && request !== inputPreviewRequest) return;
+
+  if (inputPreviewMode !== '2d') return;
+  const captured = inputViewer.captureSnapshot(inputSnapshotCanvas);
+  inputViewer.clear();
+  inputCanvas.hidden = captured;
+  inputSnapshotCanvas.hidden = !captured;
+}
+
 function focusRow(id: string) {
   const entry = fileRows.find((e) => e.id === id);
   if (!entry) return;
@@ -785,7 +898,8 @@ function focusRow(id: string) {
   }
 }
 
-// Normalize any supported input to GLB for the shared three.js preview.
+// Normalize any supported input to GLB for the optional 3D preview or one-shot
+// 2D snapshot.
 async function previewInput(entry: FileRow, file: File): Promise<InspectResult> {
   const request = ++inputPreviewRequest;
   beginInputLoading(request, file);
@@ -824,12 +938,15 @@ async function previewInput(entry: FileRow, file: File): Promise<InspectResult> 
     // intentionally synchronous, and on large assets it can still take long
     // enough to make the preview feel frozen even though parsing is complete.
     // Let the viewer paint once so the model is visible before that work.
-    updateInputLoading(request, 0.94, 'Sending model to the viewer…');
+    updateInputLoading(
+      request,
+      0.94,
+      inputPreviewMode === '2d'
+        ? 'Rendering lightweight 2D snapshot…'
+        : 'Sending model to the viewer…',
+    );
     await nextPaint();
-    inputEmpty.hidden = true;
-    inputCanvas.hidden = false;
-    inputViewer.setScene(gltf.scene);
-    await nextPaint();
+    await renderInputScene(gltf.scene, request);
 
     if (request !== inputPreviewRequest || entry.file !== file || activeId !== entry.id) {
       const error = new Error('Preview loading was superseded.');
@@ -856,7 +973,12 @@ async function previewInput(entry: FileRow, file: File): Promise<InspectResult> 
         error.name = 'AbortError';
         throw error;
       }
-      inputViewer.setScene(fallback.scene);
+      await renderInputScene(fallback.scene, request);
+      if (request !== inputPreviewRequest || entry.file !== file || activeId !== entry.id) {
+        const error = new Error('Preview loading was superseded.');
+        error.name = 'AbortError';
+        throw error;
+      }
     }
 
     updateInputLoading(request, 1, 'Preview ready');
@@ -1251,6 +1373,7 @@ queue.onRemoveOne((id) => {
     inputLoading.hidden = true;
     inputEmpty.hidden = false;
     inputCanvas.hidden = true;
+    clearInputSnapshot();
     inputViewer.clear();
     hideStats();
   }
@@ -1393,6 +1516,8 @@ function clearAll() {
   activeId = null;
   outputPinEntryId = null;
   selectedDetailPinId = null;
+  inputPreviewMode = '2d';
+  syncInputPreviewModeControls();
   setDetailPinEditMode(false);
   queueHost.hidden = true;
   setMobilePane('input');
@@ -1412,6 +1537,7 @@ function clearAll() {
   inputEmpty.hidden = false;
   outputEmpty.hidden = false;
   inputCanvas.hidden = true;
+  clearInputSnapshot();
   outputCanvas.hidden = true;
   showOutputLabel('Converted preview');
   hideStats();
