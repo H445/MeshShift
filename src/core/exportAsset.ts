@@ -80,8 +80,53 @@ const IDENTITY: Matrix4 = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
+const FBX_TIMESTAMP_FIELDS = [
+  ['Year', 2000],
+  ['Month', 1],
+  ['Day', 1],
+  ['Hour', 0],
+  ['Minute', 0],
+  ['Second', 0],
+  ['Millisecond', 0],
+] as const;
+
 function bytesOf(file: AssetFile): Uint8Array {
   return file.data instanceof Uint8Array ? file.data : new Uint8Array(file.data);
+}
+
+function findBytes(haystack: Uint8Array, needle: Uint8Array, from = 0): number {
+  outer: for (let index = from; index <= haystack.length - needle.length; index++) {
+    for (let offset = 0; offset < needle.length; offset++) {
+      if (haystack[index + offset] !== needle[offset]) continue outer;
+    }
+    return index;
+  }
+  return -1;
+}
+
+/**
+ * Assimp's binary FBX exporter embeds the current wall-clock time in the
+ * CreationTimeStamp node. It is non-semantic metadata, but it makes identical
+ * conversions produce different package artifacts. Normalize only those
+ * explicitly named integer fields; geometry, materials, and all other bytes
+ * remain untouched.
+ */
+function normalizeFbxCreationTimestamp(data: Uint8Array): Uint8Array {
+  const normalized = data.slice();
+  const timestampNode = findBytes(normalized, encoder.encode('CreationTimeStamp'));
+  if (timestampNode < 0) return data;
+
+  const view = new DataView(normalized.buffer, normalized.byteOffset, normalized.byteLength);
+  let cursor = timestampNode + 'CreationTimeStamp'.length;
+  for (const [field, value] of FBX_TIMESTAMP_FIELDS) {
+    const fieldIndex = findBytes(normalized, encoder.encode(field), cursor);
+    if (fieldIndex < 0) continue;
+    const typeIndex = fieldIndex + field.length;
+    if (normalized[typeIndex] !== 0x49 /* FBX integer property type */) continue;
+    view.setInt32(typeIndex + 1, value, true);
+    cursor = typeIndex + 5;
+  }
+  return normalized;
 }
 
 function addFiles(assimp: AssimpInstance, files: AssetFile[]) {
@@ -612,6 +657,9 @@ function renameNativeOutputs(
       } catch {
         // Preserve Assimp's output if an exporter ever emits non-JSON content.
       }
+    }
+    if (index === primaryIndex && format === 'fbx') {
+      data = normalizeFbxCreationTimestamp(data);
     }
     return { name, data, mimeType: mimeForName(name) };
   });

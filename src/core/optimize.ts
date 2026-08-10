@@ -37,12 +37,13 @@ import { MeshBVH, type HitPointInfo } from 'three-mesh-bvh';
 import {
   DEFAULT_DEEPEST_LOD_TRIANGLE_CAP,
   DEFAULT_LOD_TRIANGLE_RATIOS,
+  validateConvertOptions,
   type ConvertOptions,
   type DetailPin,
   type InspectResult,
 } from '../shared/options.js';
 import { inspectGltf, inspectScene } from './inspect.js';
-import { makeProgress } from './progress.js';
+import { makeProgress, throwIfAborted } from './progress.js';
 
 declare const __IS_BROWSER__: boolean;
 
@@ -124,7 +125,9 @@ export async function generateLodGeometries(
   lodTriangleTargets?: number[],
   onProgress?: (pct: number) => void,
   detailPins: readonly LodDetailPin[] = [],
+  signal?: AbortSignal,
 ): Promise<GeneratedLodGeometry[]> {
+  throwIfAborted(signal);
   const levelCount = Math.max(0, Math.min(8, Math.floor(requestedLevels)));
   const sourceTriangles = source.index
     ? source.index.count / 3
@@ -136,6 +139,7 @@ export async function generateLodGeometries(
 
   try {
     for (let level = 1; level <= levelCount; level++) {
+      throwIfAborted(signal);
       // Generate every level directly from LOD0. Repeatedly simplifying the
       // previous LOD compounds geometric and UV error, so the deepest levels
       // can be much worse than a single reduction to the same triangle count.
@@ -1567,7 +1571,9 @@ export async function optimizeGltf(
   buf: ArrayBuffer | Uint8Array,
   options: ConvertOptions,
 ): Promise<OptimizeResult> {
+  validateConvertOptions(options);
   const opts = options;
+  throwIfAborted(opts.signal);
   const progress = makeProgress(opts);
   progress('parse', 0);
   const maxTris = Math.max(0, opts.maxTriangles ?? 0);
@@ -1583,6 +1589,7 @@ export async function optimizeGltf(
   if (!hasAny) {
     progress('inspect', 0);
     const stats = await inspectGltf(buf);
+    throwIfAborted(opts.signal);
     progress('parse', 1);
     progress('inspect', 1);
     return { data: buf instanceof Uint8Array ? buf : new Uint8Array(buf), stats, changes: [] };
@@ -1608,6 +1615,7 @@ export async function optimizeGltf(
       : buf;
 
   const gltf = await loadGltf(ab);
+  throwIfAborted(opts.signal);
   progress('parse', 1);
 
   const changes: OptimizeChange[] = [];
@@ -1615,6 +1623,7 @@ export async function optimizeGltf(
   // 1. Texture resize
   progress('textures', 0);
   if (opts.maxTextureSize && opts.maxTextureSize < 8192) {
+    throwIfAborted(opts.signal);
     const resizeChanges = resizeTextures(gltf.scene, maxTex);
     changes.push(...resizeChanges);
   }
@@ -1654,6 +1663,7 @@ export async function optimizeGltf(
   //    caused the previous edge-collapse path to tear UV-seamed assets.
   if (maxTris > 0) {
     for (let recordIndex = 0; recordIndex < records.length; recordIndex++) {
+      throwIfAborted(opts.signal);
       const rec = records[recordIndex];
       const geo = rec.mesh.geometry;
       const triCount = geo.index ? geo.index.count / 3 : geo.attributes.position.count / 3;
@@ -1705,6 +1715,7 @@ export async function optimizeGltf(
   //    position, but visibility is independent per LOD level.
   if (lodCount > 0) {
     for (let recordIndex = 0; recordIndex < records.length; recordIndex++) {
+      throwIfAborted(opts.signal);
       const rec = records[recordIndex];
       const geo = rec.mesh.geometry;
       const triCount = geo.index ? geo.index.count / 3 : geo.attributes.position.count / 3;
@@ -1758,6 +1769,7 @@ export async function optimizeGltf(
             progress('optimize', base + span * pct);
           },
           (opts.detailPins ?? []).filter((pin) => pin.meshKey === rec.key),
+          opts.signal,
         );
       } catch (error) {
         textureBaker?.dispose?.();
@@ -1822,6 +1834,7 @@ export async function optimizeGltf(
       // ordinary-asset run with the previous run's native buffers still live.
       try {
         for (const result of generatedLods) {
+          throwIfAborted(opts.signal);
           let lodGeometry = result.geometry;
           let lodMaterial = rec.mesh.material;
           // Rebuild the UV layout and reproject the source textures for every
@@ -1913,6 +1926,7 @@ export async function optimizeGltf(
       }
     });
     for (const [material, meshes] of byMaterial) {
+      throwIfAborted(opts.signal);
       if (meshes.length < 2) continue;
       // Only merge meshes that share the same parent (so the
       // hierarchy doesn't get reorganized under the merge root).
@@ -1926,6 +1940,7 @@ export async function optimizeGltf(
         levelGroups.get(lodLevel)!.push(m);
       }
       for (const [parent, levelGroups] of parentGroups) {
+        throwIfAborted(opts.signal);
         for (const [lodLevel, group] of levelGroups) {
           if (group.length < 2) continue;
           // Compute world matrices so the merged geometry keeps its
@@ -1999,6 +2014,7 @@ export async function optimizeGltf(
 
   // Export back to glb
   progress('export', 0);
+  throwIfAborted(opts.signal);
   let optimized: Uint8Array;
   try {
     optimized = await exportGltf(gltf);

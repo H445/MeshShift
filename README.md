@@ -129,6 +129,11 @@ result.warnings;
 
 `convertGltfToFbx()` remains as a backwards-compatible wrapper. `convertBatch()` accepts the same output options and supports companion files through each batch item's `files` property.
 
+Long-running core and optimization calls may receive an `AbortSignal` through
+their options. Cancellation is cooperative: the API returns a typed
+`AbortError` at the next phase boundary or yield, while a native parser/export
+operation already in progress may finish its current operation first.
+
 ## Architecture
 
 ```text
@@ -149,7 +154,7 @@ The loading panel reports each of those stages and remains animated during long 
 
 **Generate optimized preview** uses the matching progress panel in the output viewer. It reports source preparation, inspection, geometry and LOD work, texture/material processing, preview packaging, parsing, and rendering, then displays the before/after statistics without writing an export.
 
-**Convert selected** uses that same output-viewer progress panel for source preparation, optimization, format export, validation, and final rendering. The complete conversion pipeline runs in a dedicated worker, so native Assimp work, Meshopt passes, LOD construction, texture processing, and export serialization do not occupy the page’s UI thread. Batch conversions run one model at a time to keep several large model buffers from accumulating in memory.
+**Convert all** (or a row’s individual **Convert**/**Retry** action) uses that same output-viewer progress panel for source preparation, optimization, format export, validation, and final rendering. The complete conversion pipeline runs in a dedicated worker, so native Assimp work, Meshopt passes, LOD construction, texture processing, and export serialization do not occupy the page’s UI thread. Batch conversions run one model at a time to keep several large model buffers from accumulating in memory.
 
 When **Generate optimized preview** has already produced a model with the current
 geometry, texture, and LOD settings, conversion exports directly from that
@@ -190,6 +195,56 @@ pnpm release:check
 ```
 
 Set `MODELSHIFT_MAX_FILE_MB` to change the default 200 MB aggregate input limit. The legacy `G2F_MAX_FILE_MB` variable is still recognized.
+
+## Safety limits and local configuration
+
+The converter applies defensive limits at every public entry point:
+
+- External input bundles default to 200 MB total. Configure the limit with `MODELSHIFT_MAX_FILE_MB`.
+- Local browser exports default to 1 GB per file. Configure the limit with `MODELSHIFT_MAX_EXPORT_MB`.
+- An input bundle may contain at most 4,096 files, and public optimization options are validated before parsing.
+- Companion files must be local, relative resources inside the selected input directory. Absolute paths, traversal, URL resources, and symlink escapes are rejected by the CLI.
+- CLI outputs are written atomically beneath the requested output directory; symlinked output parents and unsafe generated names are rejected.
+
+Both environment variables accept non-negative megabytes. Invalid or overflowing values fall back to the documented defaults. These controls are intended for local deployments and should be set to match the host's available memory and disk budget.
+
+## Release verification
+
+Run the complete release gate with:
+
+```sh
+npm run release:check
+```
+
+This performs type checking, linting, formatting verification, the full test suite, the production build, and distributable-artifact verification. The verifier checks the core API, CLI, browser client, vendor WASM/runtime files, third-party notices, package engine requirement, and executable metadata.
+
+Run `npm run benchmark` after a production build to generate a repeatable fixture baseline at `artifacts/benchmark-baseline.json`. The baseline records input/output sizes, three conversion-duration and CPU samples, throughput, peak/retained memory deltas, and startup probes per representative fixture; `npm run benchmark:verify` compares those measurements against release-specific performance budgets.
+
+The package declares `pnpm@10.30.1` as its package manager. Use `pnpm install --frozen-lockfile` in CI or release environments. npm can run project scripts when dependencies are already installed, but the lockfile should be resolved with the declared package manager.
+
+## Enterprise release evidence
+
+The versioned release contract and audit evidence live in:
+
+- [Release contract](docs/RELEASE_CONTRACT.md)
+- [Format and feature matrix](docs/FORMAT_FEATURE_MATRIX.md)
+- [Quality and performance budgets](docs/QUALITY_BUDGETS.md)
+- [Browser compatibility matrix](docs/BROWSER_COMPATIBILITY_MATRIX.md)
+- [Threat model](docs/THREAT_MODEL.md)
+- [Operations and release runbook](docs/OPERATIONS_RUNBOOK.md)
+- [Release approval record](docs/RELEASE_APPROVAL_RECORD.md)
+- [Ship-readiness plan](SHIP_READINESS_PLAN.md)
+- [Ship-readiness evidence report](SHIP_READINESS_REPORT.md)
+
+`npm run benchmark` writes the current machine's measurements to
+`artifacts/benchmark-baseline.json`; `npm run benchmark:verify` enforces the
+versioned fixture ceilings in `docs/performance-budgets.json`.
+
+`npm run test:report` writes the machine-readable Vitest result used as retained
+CI release evidence at `artifacts/test-results.json`.
+
+`npm run reliability` and `npm run reliability:verify` retain the bounded
+concurrency evidence at `artifacts/reliability-baseline.json`.
 
 ## Limitations
 

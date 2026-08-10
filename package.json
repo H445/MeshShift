@@ -15,13 +15,18 @@
     "./package.json": "./package.json"
   },
   "bin": {
-    "modelshift": "./dist/cli/modelshift.mjs"
+    "modelshift": "dist/cli/modelshift.mjs"
   },
   "files": [
     "dist",
     "README.md",
     "LICENSE",
-    "THIRD_PARTY_NOTICES.md"
+    "THIRD_PARTY_NOTICES.md",
+    "CHANGELOG.md",
+    "SECURITY.md",
+    "SHIP_READINESS_PLAN.md",
+    "SHIP_READINESS_REPORT.md",
+    "docs"
   ],
   "engines": {
     "node": ">=20"
@@ -35,6 +40,7 @@
     "build": "node scripts/build.mjs",
     "preview": "vite preview",
     "test": "vitest run",
+    "test:report": "vitest run --reporter=json --outputFile=artifacts/test-results.json",
     "test:watch": "vitest",
     "typecheck:source": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json --noEmit",
     "typecheck:test": "tsc -p test/tsconfig.json --noEmit",
@@ -43,7 +49,19 @@
     "format": "prettier --write \"src/**/*.{ts,css,html}\" \"test/**/*.ts\" \"scripts/**/*.mjs\" \"*.{ts,js,json,md}\"",
     "format:check": "prettier --check \"src/**/*.{ts,css,html}\" \"test/**/*.ts\" \"scripts/**/*.mjs\" \"*.{ts,js,json,md}\"",
     "check": "npm run typecheck && npm run lint && npm run format:check && npm test",
-    "release:check": "npm run check && npm run build",
+    "verify:release": "node scripts/verify-release.mjs",
+    "verify:package": "node scripts/verify-package.mjs",
+    "verify:docs": "node scripts/verify-docs.mjs",
+    "sbom": "node scripts/generate-sbom.mjs",
+    "benchmark": "node --expose-gc scripts/benchmark-release.mjs",
+    "benchmark:verify": "node scripts/verify-benchmark.mjs",
+    "fidelity": "node scripts/fidelity-release.mjs",
+    "fidelity:verify": "node scripts/verify-fidelity.mjs",
+    "packed-consumer:verify": "node scripts/verify-packed-consumer.mjs",
+    "reliability": "node scripts/reliability-release.mjs",
+    "reliability:verify": "node scripts/verify-reliability.mjs",
+    "interruption:verify": "node scripts/verify-cli-interruption.mjs",
+    "release:check": "npm run check && npm run build && npm run verify:package && npm run verify:release && npm run verify:docs && npm run fidelity && npm run fidelity:verify && npm run benchmark && npm run benchmark:verify && npm run reliability && npm run reliability:verify && npm run interruption:verify",
     "prepack": "npm run release:check",
     "make-fixtures": "node scripts/make-fixtures.mjs"
   },
@@ -69,9 +87,18 @@
     "vite": "^5.4.11",
     "vitest": "^2.1.6"
   },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild"
-    ]
-  }
+  "directories": {
+    "doc": "docs",
+    "test": "test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/H445/gltf-to-fbx.git"
+  },
+  "keywords": [],
+  "author": "",
+  "bugs": {
+    "url": "https://github.com/H445/gltf-to-fbx/issues"
+  },
+  "homepage": "https://github.com/H445/gltf-to-fbx#readme"
 }

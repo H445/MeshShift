@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "minimumIterations": 3,
+  "fixtures": {
+    "cube.glb": {
+      "inputBytes": 1168,
+      "maxSampleMs": 500,
+      "maxOutputBytes": 1048576
+    },
+    "animated-cube.glb": {
+      "inputBytes": 1612,
+      "maxSampleMs": 1000,
+      "maxOutputBytes": 2097152
+    },
+    "skinned-cube.glb": {
+      "inputBytes": 1796,
+      "maxSampleMs": 1000,
+      "maxOutputBytes": 2097152
+    },
+    "sphere.glb": {
+      "inputBytes": 23664,
+      "maxSampleMs": 2000,
+      "maxOutputBytes": 4194304
+    },
+    "potion.glb": {
+      "inputBytes": 8510352,
+      "maxSampleMs": 10000,
+      "maxOutputBytes": 16777216
+    },
+    "item-bag.glb": {
+      "inputBytes": 7084236,
+      "maxSampleMs": 10000,
+      "maxOutputBytes": 16777216
+    },
+    "generated-large-sphere.glb": {
+      "maxSampleMs": 10000,
+      "maxOutputBytes": 33554432
+    },
+    "generated-maximum-sphere.glb": {
+      "maxSampleMs": 45000,
+      "maxOutputBytes": 268435456,
+      "maxRssDeltaBytes": 2147483648,
+      "maxHeapDeltaBytes": 536870912
+    }
+  }
+}

@@ -70,6 +70,7 @@ export function progressToast(title: string, initialProgress = 0): ProgressToast
   const bar = document.createElement('div');
   bar.className = 'toast-progress-bar';
   bar.setAttribute('role', 'progressbar');
+  bar.setAttribute('aria-label', title);
   bar.setAttribute('aria-valuemin', '0');
   bar.setAttribute('aria-valuemax', '100');
   track.appendChild(bar);

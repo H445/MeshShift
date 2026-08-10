@@ -4,8 +4,18 @@ import { basename, dirname, isAbsolute, relative, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
 export const EXPORT_API_PATH = '/__modelshift/exports';
-const DEFAULT_MAX_EXPORT_BYTES = 1024 * 1024 * 1024;
+export const DEFAULT_MAX_EXPORT_BYTES = 1024 * 1024 * 1024;
 const WINDOWS_RESERVED_NAME = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i;
+
+export function getMaxExportBytes(): number {
+  const configuredMb = process.env.MODELSHIFT_MAX_EXPORT_MB;
+  if (configuredMb === undefined) return DEFAULT_MAX_EXPORT_BYTES;
+  const parsedMb = Number(configuredMb);
+  const bytes = parsedMb * 1024 * 1024;
+  return Number.isFinite(parsedMb) && Number.isSafeInteger(bytes) && parsedMb >= 0
+    ? bytes
+    : DEFAULT_MAX_EXPORT_BYTES;
+}
 
 export class ExportRequestError extends Error {
   constructor(
@@ -109,6 +119,9 @@ export async function writeExportFile(
   source: AsyncIterable<Uint8Array>,
   maximumBytes = DEFAULT_MAX_EXPORT_BYTES,
 ): Promise<ExportWriteResult> {
+  if (!Number.isSafeInteger(maximumBytes) || maximumBytes < 0) {
+    throw new RangeError('maximumBytes must be a non-negative safe integer.');
+  }
   const target = resolveExportPath(exportRoot, requestedPath);
   const absolutePath = await prepareExportTarget(exportRoot, target.relativePath);
 
@@ -158,7 +171,19 @@ function json(
   response.statusCode = statusCode;
   response.setHeader('Content-Type', 'application/json; charset=utf-8');
   response.setHeader('Cache-Control', 'no-store');
+  response.setHeader('X-Content-Type-Options', 'nosniff');
   response.end(JSON.stringify(payload));
+}
+
+function requestContentLength(request: IncomingMessage): number | undefined {
+  const header = request.headers['content-length'];
+  if (header === undefined) return undefined;
+  const value = Array.isArray(header) ? header[0] : header;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    throw new ExportRequestError('Content-Length must be a non-negative integer.');
+  }
+  return parsed;
 }
 
 /** Connect-compatible middleware mounted by both Vite dev and preview. */
@@ -186,7 +211,16 @@ export function createExportMiddleware(exportRoot: string) {
     }
 
     try {
-      const saved = await writeExportFile(exportRoot, requestedPath, request);
+      const maximumBytes = getMaxExportBytes();
+      const contentLength = requestContentLength(request);
+      if (contentLength !== undefined && contentLength > maximumBytes) {
+        request.resume();
+        json(response, 413, {
+          error: `Export exceeds the ${Math.floor(maximumBytes / 1024 / 1024)} MB limit.`,
+        });
+        return;
+      }
+      const saved = await writeExportFile(exportRoot, requestedPath, request, maximumBytes);
       json(response, 201, {
         bytes: saved.bytes,
         path: `exports/${saved.relativePath}`,

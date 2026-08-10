@@ -46,10 +46,13 @@ export interface ConvertOptions {
 
   /** Optional progress callback. */
   onProgress?: (phase: ConvertPhase, pct: number) => void;
+  /** Abort signal checked between conversion phases and cooperative yields. */
+  signal?: AbortSignal;
 }
 
-export const DEFAULT_OPTIONS: Required<Omit<ConvertOptions, 'onProgress'>> & {
+export const DEFAULT_OPTIONS: Required<Omit<ConvertOptions, 'onProgress' | 'signal'>> & {
   onProgress?: ConvertOptions['onProgress'];
+  signal?: ConvertOptions['signal'];
 } = {
   outputFormat: 'fbx',
   maxTextureSize: 2048,
@@ -62,6 +65,94 @@ export const DEFAULT_OPTIONS: Required<Omit<ConvertOptions, 'onProgress'>> & {
 
 /** Quality-focused automatic targets as a fraction of source triangles. */
 export const DEFAULT_LOD_TRIANGLE_RATIOS = [0.5, 0.3, 0.2, 0.12] as const;
+
+/** Hard limits shared by every public conversion entry point. */
+export const MAX_GENERATED_LODS = 8;
+export const MAX_LOD_TARGETS = MAX_GENERATED_LODS;
+export const MAX_DETAIL_PINS = 256;
+export const MAX_TRIANGLE_BUDGET = 1_000_000_000;
+export const MAX_TEXTURE_SIZE = 8_192;
+export const MAX_INPUT_FILES = 4_096;
+
+/**
+ * Validate options at the public API boundary. Browser controls and the CLI
+ * validate their own input, but the reusable API must not trust either caller.
+ */
+export function validateConvertOptions(options: ConvertOptions): void {
+  if (options.outputFormat !== undefined && typeof options.outputFormat !== 'string') {
+    throw new TypeError('outputFormat must be a string.');
+  }
+  if (options.maxTextureSize !== undefined) {
+    if (
+      !Number.isSafeInteger(options.maxTextureSize) ||
+      options.maxTextureSize < 1 ||
+      options.maxTextureSize > MAX_TEXTURE_SIZE
+    ) {
+      throw new RangeError(`maxTextureSize must be an integer from 1 to ${MAX_TEXTURE_SIZE}.`);
+    }
+  }
+  if (options.maxTriangles !== undefined) {
+    if (
+      !Number.isSafeInteger(options.maxTriangles) ||
+      options.maxTriangles < 0 ||
+      options.maxTriangles > MAX_TRIANGLE_BUDGET
+    ) {
+      throw new RangeError(
+        `maxTriangles must be an integer from 0 to ${MAX_TRIANGLE_BUDGET.toLocaleString()}.`,
+      );
+    }
+  }
+  if (options.generateLODs !== undefined) {
+    if (
+      !Number.isSafeInteger(options.generateLODs) ||
+      options.generateLODs < 0 ||
+      options.generateLODs > MAX_GENERATED_LODS
+    ) {
+      throw new RangeError(`generateLODs must be an integer from 0 to ${MAX_GENERATED_LODS}.`);
+    }
+  }
+  if (options.lodTriangleTargets !== undefined) {
+    if (options.lodTriangleTargets.length > MAX_LOD_TARGETS) {
+      throw new RangeError(
+        `lodTriangleTargets cannot contain more than ${MAX_LOD_TARGETS} entries.`,
+      );
+    }
+    options.lodTriangleTargets.forEach((target, index) => {
+      if (!Number.isSafeInteger(target) || target < 0 || target > MAX_TRIANGLE_BUDGET) {
+        throw new RangeError(
+          `lodTriangleTargets[${index}] must be an integer from 0 to ${MAX_TRIANGLE_BUDGET.toLocaleString()}.`,
+        );
+      }
+    });
+  }
+  if (options.detailPins !== undefined) {
+    if (options.detailPins.length > MAX_DETAIL_PINS) {
+      throw new RangeError(`detailPins cannot contain more than ${MAX_DETAIL_PINS} entries.`);
+    }
+    for (const [index, pin] of options.detailPins.entries()) {
+      if (
+        !pin ||
+        typeof pin.id !== 'string' ||
+        typeof pin.meshKey !== 'string' ||
+        typeof pin.meshName !== 'string' ||
+        pin.id.length === 0 ||
+        pin.meshKey.length === 0 ||
+        pin.meshName.length === 0
+      ) {
+        throw new TypeError(`detailPins[${index}] must contain non-empty identifiers and names.`);
+      }
+      if (
+        !Number.isSafeInteger(pin.lodLevel) ||
+        pin.lodLevel < 0 ||
+        pin.lodLevel > MAX_GENERATED_LODS ||
+        pin.position.length !== 3 ||
+        pin.position.some((value) => !Number.isFinite(value))
+      ) {
+        throw new RangeError(`detailPins[${index}] contains an invalid LOD level or position.`);
+      }
+    }
+  }
+}
 
 /**
  * Keep the deepest automatic LOD useful for both small props and very dense

@@ -46,14 +46,25 @@ function postProgress(id: number, phase: ConvertPhase, pct: number): void {
 async function processRequest(message: ModelWorkerRequest): Promise<void> {
   try {
     installWorkerCanvasDocument();
-    const { convertAsset, convertPreparedAsset, inspectGltf, optimizeGltf, selectGlbLods } =
-      await import('@core');
+    const {
+      convertAsset,
+      convertPreparedAsset,
+      getMaxInputBytes,
+      InputTooLargeError,
+      inspectGltf,
+      optimizeGltf,
+      selectGlbLods,
+    } = await import('@core');
     if (message.type === 'normalize') {
       const directGlb =
         message.files.length === 1 && message.files[0].name.toLowerCase().endsWith('.glb')
           ? message.files[0]
           : undefined;
       if (directGlb) {
+        const maxBytes = getMaxInputBytes();
+        if (directGlb.data.byteLength > maxBytes) {
+          throw new InputTooLargeError(directGlb.data.byteLength, maxBytes);
+        }
         const started = performance.now();
         const info = await inspectGltf(directGlb.data);
         const data = directGlb.data;

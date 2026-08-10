@@ -9,12 +9,14 @@ import {
   Vector3,
 } from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import { OBJExporter } from 'three/examples/jsm/exporters/OBJExporter.js';
 import { PLYExporter } from 'three/examples/jsm/exporters/PLYExporter.js';
 import { STLExporter } from 'three/examples/jsm/exporters/STLExporter.js';
 import type { AssetFile, ConvertedFile, ConvertOptions, OutputFormat } from '../shared/options.js';
+import { ExportError } from './errors.js';
 import { outputFilename } from './formats.js';
-import { makeProgress } from './progress.js';
+import { makeProgress, throwIfAborted } from './progress.js';
 
 const encoder = new TextEncoder();
 
@@ -42,6 +44,27 @@ function loadPreparedGltf(data: ArrayBuffer | Uint8Array): Promise<{
       '',
       (gltf) => resolve({ scene: gltf.scene, animations: gltf.animations }),
       (reason) => reject(reason instanceof Error ? reason : new Error(String(reason))),
+    );
+  });
+}
+
+function exportBinaryGltf(gltf: {
+  scene: import('three').Object3D;
+  animations: import('three').AnimationClip[];
+}): Promise<Uint8Array> {
+  return new Promise((resolve, reject) => {
+    const exporter = new GLTFExporter();
+    exporter.parse(
+      gltf.scene,
+      (result) => {
+        if (!(result instanceof ArrayBuffer)) {
+          reject(new ExportError('Self-contained glTF export did not produce a binary GLB.'));
+          return;
+        }
+        resolve(new Uint8Array(result));
+      },
+      (reason) => reject(reason instanceof Error ? reason : new Error(String(reason))),
+      { animations: gltf.animations, binary: true },
     );
   });
 }
@@ -358,6 +381,38 @@ export async function exportPreparedGlb(
     else files = exportDaeScene(gltf.scene, primaryName);
     progress('export', 1);
     return files;
+  } finally {
+    disposeScene(gltf.scene);
+  }
+}
+
+/**
+ * Export a self-contained glTF input through the three.js exporter so
+ * attributes and scene semantics that Assimp's native GLB writer does not
+ * round-trip (for example tangents and hierarchy transforms) remain intact.
+ */
+export async function exportGltfToGlb(
+  file: AssetFile,
+  primaryName: string,
+  options?: ConvertOptions,
+): Promise<ConvertedFile[]> {
+  const progress = makeProgress(options);
+  progress('parse', 0);
+  const gltf = await loadPreparedGltf(file.data);
+  throwIfAborted(options?.signal);
+  progress('parse', 1);
+  progress('export', 0);
+  try {
+    const data = await exportBinaryGltf(gltf);
+    throwIfAborted(options?.signal);
+    progress('export', 1);
+    return [
+      {
+        name: outputFilename(primaryName, 'glb'),
+        data,
+        mimeType: 'model/gltf-binary',
+      },
+    ];
   } finally {
     disposeScene(gltf.scene);
   }

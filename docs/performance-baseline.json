@@ -1,0 +1,105 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-09T10:43:25.381Z",
+  "node": "v24.13.1",
+  "platform": "win32",
+  "arch": "x64",
+  "measurements": [
+    {
+      "fixture": "cube.glb",
+      "inputBytes": 1168,
+      "outputBytes": 17232,
+      "iterations": 3,
+      "durationMs": [84.03, 3.61, 2.63],
+      "minMs": 2.63,
+      "maxMs": 84.03,
+      "meanMs": 30.09,
+      "maxRssDeltaBytes": 241664,
+      "maxHeapDeltaBytes": 3281120
+    },
+    {
+      "fixture": "animated-cube.glb",
+      "inputBytes": 1612,
+      "outputBytes": 25984,
+      "iterations": 3,
+      "durationMs": [5.27, 3.44, 2.7],
+      "minMs": 2.7,
+      "maxMs": 5.27,
+      "meanMs": 3.8,
+      "maxRssDeltaBytes": 458752,
+      "maxHeapDeltaBytes": 396712
+    },
+    {
+      "fixture": "skinned-cube.glb",
+      "inputBytes": 1796,
+      "outputBytes": 19552,
+      "iterations": 3,
+      "durationMs": [4.49, 2.77, 3.04],
+      "minMs": 2.77,
+      "maxMs": 4.49,
+      "meanMs": 3.43,
+      "maxRssDeltaBytes": 1114112,
+      "maxHeapDeltaBytes": 1019136
+    },
+    {
+      "fixture": "sphere.glb",
+      "inputBytes": 23664,
+      "outputBytes": 106544,
+      "iterations": 3,
+      "durationMs": [7.93, 7.22, 7.14],
+      "minMs": 7.14,
+      "maxMs": 7.93,
+      "meanMs": 7.43,
+      "maxRssDeltaBytes": 14356480,
+      "maxHeapDeltaBytes": 1041776
+    },
+    {
+      "fixture": "potion.glb",
+      "inputBytes": 8510352,
+      "outputBytes": 8629568,
+      "iterations": 3,
+      "durationMs": [1457.91, 1383.55, 1380.24],
+      "minMs": 1380.24,
+      "maxMs": 1457.91,
+      "meanMs": 1407.23,
+      "maxRssDeltaBytes": 199426048,
+      "maxHeapDeltaBytes": 2496744
+    },
+    {
+      "fixture": "item-bag.glb",
+      "inputBytes": 7084236,
+      "outputBytes": 7194832,
+      "iterations": 3,
+      "durationMs": [1135.95, 1134.65, 1137.31],
+      "minMs": 1134.65,
+      "maxMs": 1137.31,
+      "meanMs": 1135.97,
+      "maxRssDeltaBytes": 99532800,
+      "maxHeapDeltaBytes": 25778968
+    },
+    {
+      "fixture": "generated-large-sphere.glb",
+      "inputBytes": 1848212,
+      "outputBytes": 7633408,
+      "iterations": 3,
+      "durationMs": [349.81, 354.35, 355.33],
+      "minMs": 349.81,
+      "maxMs": 355.33,
+      "meanMs": 353.16,
+      "maxRssDeltaBytes": 41807872,
+      "maxHeapDeltaBytes": 59354328
+    },
+    {
+      "fixture": "generated-maximum-sphere.glb",
+      "inputBytes": 29410208,
+      "outputBytes": 121712128,
+      "iterations": 3,
+      "durationMs": [5821.46, 5789.02, 5783.7],
+      "minMs": 5783.7,
+      "maxMs": 5821.46,
+      "meanMs": 5798.06,
+      "maxRssDeltaBytes": 1040363520,
+      "maxHeapDeltaBytes": 10656
+    }
+  ]
+}

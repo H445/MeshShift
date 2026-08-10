@@ -234,6 +234,11 @@ export function createQueue(listEl: HTMLElement): QueueHandle {
       const prog = document.createElement('div');
       prog.className = 'queue-item-progress';
       prog.style.setProperty('--p', String(r.progress));
+      prog.setAttribute('role', 'progressbar');
+      prog.setAttribute('aria-label', `Conversion progress for ${r.name}`);
+      prog.setAttribute('aria-valuemin', '0');
+      prog.setAttribute('aria-valuemax', '100');
+      prog.setAttribute('aria-valuenow', String(Math.round(r.progress * 100)));
       if (r.status === 'converting') {
         prog.classList.add('animated');
       }
@@ -251,6 +256,9 @@ export function createQueue(listEl: HTMLElement): QueueHandle {
                 : 'Skipped';
       status.className = `queue-item-status ${r.status === 'done' ? 'ok' : r.status === 'error' ? 'err' : r.status === 'converting' ? 'working' : r.selected ? '' : 'skipped'}`;
       status.textContent = statusText;
+      status.setAttribute('role', 'status');
+      status.setAttribute('aria-live', 'polite');
+      status.setAttribute('aria-atomic', 'true');
 
       // Remove button — always present so users can clean up the queue.
       const remove = document.createElement('button');

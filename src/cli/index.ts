@@ -1,23 +1,23 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
-import { readFile, writeFile, mkdir, stat, readdir } from 'node:fs/promises';
-import { resolve, basename, extname, join, dirname, relative } from 'node:path';
+import { stat, readdir } from 'node:fs/promises';
+import { resolve, basename, extname, join, dirname } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { cpus } from 'node:os';
-import JSZip from 'jszip';
 import {
-  getMaxInputBytes,
   INPUT_FORMATS,
-  InputTooLargeError,
   OUTPUT_FORMATS,
   isSupportedInputName,
   outputFilename,
-  type AssetFile,
   type ConvertPhase,
   type ConvertResult,
   type InspectResult,
   type OutputFormat,
 } from '../core/index.js';
+import { throwIfAborted } from '../core/progress.js';
+import { loadAssetFiles } from './assetFiles.js';
+import { writeZipArchive } from './archive.js';
+import { writeOutputFile } from './outputFiles.js';
 
 declare const __MODELSHIFT_VERSION__: string;
 
@@ -65,6 +65,15 @@ function validateOptions(): void {
 }
 validateOptions();
 
+const operationController = new AbortController();
+const handleInterrupt = (signalName: NodeJS.Signals): void => {
+  if (operationController.signal.aborted) return;
+  console.error(`\nReceived ${signalName}; cancelling the current operation…`);
+  operationController.abort(`Operation interrupted by ${signalName}.`);
+};
+process.once('SIGINT', () => handleInterrupt('SIGINT'));
+process.once('SIGTERM', () => handleInterrupt('SIGTERM'));
+
 interface FileJob {
   inputPath: string;
   outputDir: string;
@@ -88,9 +97,14 @@ function makeJob(inputPath: string): FileJob {
   };
 }
 
-async function collectJobs(paths: string[], recursive: boolean): Promise<FileJob[]> {
+async function collectJobs(
+  paths: string[],
+  recursive: boolean,
+  signal?: AbortSignal,
+): Promise<FileJob[]> {
   const jobs: FileJob[] = [];
   for (const input of paths) {
+    throwIfAborted(signal);
     const absolute = resolve(input);
     const info = await stat(absolute).catch(() => null);
     if (!info) {
@@ -99,9 +113,10 @@ async function collectJobs(paths: string[], recursive: boolean): Promise<FileJob
     }
     if (info.isDirectory()) {
       for (const entry of await readdir(absolute, { withFileTypes: true })) {
+        throwIfAborted(signal);
         const path = join(absolute, entry.name);
         if (entry.isDirectory() && recursive) {
-          jobs.push(...(await collectJobs([path], true)));
+          jobs.push(...(await collectJobs([path], true, signal)));
         } else if (entry.isFile() && isSupportedInputName(entry.name)) {
           jobs.push(makeJob(path));
         }
@@ -113,87 +128,6 @@ async function collectJobs(paths: string[], recursive: boolean): Promise<FileJob
     }
   }
   return jobs;
-}
-
-function referencesFrom(name: string, data: Uint8Array): string[] {
-  const extension = extname(name).toLowerCase();
-  if (!['.gltf', '.obj', '.mtl', '.dae'].includes(extension)) return [];
-  const text = new TextDecoder().decode(data);
-  if (extension === '.gltf') {
-    try {
-      const document = JSON.parse(text) as {
-        buffers?: Array<{ uri?: string }>;
-        images?: Array<{ uri?: string }>;
-      };
-      return [...(document.buffers ?? []), ...(document.images ?? [])]
-        .map((item) => item.uri)
-        .filter((uri): uri is string => Boolean(uri && !/^(data:|https?:)/i.test(uri)));
-    } catch {
-      return [];
-    }
-  }
-  if (extension === '.obj') {
-    return Array.from(text.matchAll(/^\s*mtllib\s+(.+)$/gim), (match) => match[1].trim());
-  }
-  if (extension === '.mtl') {
-    return Array.from(
-      text.matchAll(/^\s*(?:map_\w+|bump|disp|decal)\s+(.+)$/gim),
-      (match) => match[1].trim().split(/\s+/).pop() ?? '',
-    ).filter(Boolean);
-  }
-  if (extension === '.dae') {
-    return Array.from(text.matchAll(/<init_from>\s*([^<]+)\s*<\/init_from>/gim), (match) =>
-      match[1].trim(),
-    );
-  }
-  return [];
-}
-
-async function loadAssetFiles(inputPath: string): Promise<AssetFile[]> {
-  const root = dirname(inputPath);
-  const byteLimit = getMaxInputBytes();
-  let loadedBytes = 0;
-  const queue = [inputPath];
-  const seen = new Set<string>();
-  const files: AssetFile[] = [];
-  while (queue.length > 0) {
-    const path = resolve(queue.shift()!);
-    const key = path.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    const fileInfo = await stat(path);
-    const projectedBytes = loadedBytes + fileInfo.size;
-    if (projectedBytes > byteLimit) {
-      throw new InputTooLargeError(projectedBytes, byteLimit);
-    }
-    const data = new Uint8Array(await readFile(path));
-    loadedBytes += data.byteLength;
-    if (loadedBytes > byteLimit) {
-      throw new InputTooLargeError(loadedBytes, byteLimit);
-    }
-    const virtualName = relative(root, path).replace(/\\/g, '/');
-    files.push({ name: virtualName, data });
-    for (const uri of referencesFrom(path, data)) {
-      let decodedUri: string;
-      try {
-        decodedUri = decodeURIComponent(uri);
-      } catch {
-        if (opts.verbose) console.error(`    invalid companion path: ${uri}`);
-        continue;
-      }
-      const reference = resolve(dirname(path), decodedUri);
-      if (
-        await stat(reference)
-          .then((value) => value.isFile())
-          .catch(() => false)
-      ) {
-        queue.push(reference);
-      } else if (opts.verbose) {
-        console.error(`    missing companion: ${uri}`);
-      }
-    }
-  }
-  return files;
 }
 
 function assertUniqueOutputs(jobs: FileJob[], format: OutputFormat): void {
@@ -210,11 +144,16 @@ function assertUniqueOutputs(jobs: FileJob[], format: OutputFormat): void {
   }
 }
 
-async function runJob(job: FileJob, index: number, total: number): Promise<JobResult> {
+async function runJob(
+  job: FileJob,
+  index: number,
+  total: number,
+  signal: AbortSignal,
+): Promise<JobResult> {
   const started = performance.now();
   try {
     const { convertAsset, convertPreparedAsset, optimizeGltf } = await import('../core/index.js');
-    let sourceFiles = await loadAssetFiles(job.inputPath);
+    let sourceFiles = await loadAssetFiles(job.inputPath, Boolean(opts.verbose), signal);
     let sourceIsPrepared = false;
     let preparedStats: InspectResult | undefined;
     const outputFormat = opts.format as OutputFormat;
@@ -227,6 +166,7 @@ async function runJob(job: FileJob, index: number, total: number): Promise<JobRe
       maxTriangles: opts.maxTriangles,
       mergeByMaterial: Boolean(opts.mergeByMaterial),
       generateLODs: opts.generateLods,
+      signal,
       onProgress: (phase: ConvertPhase, pct: number) => {
         if (opts.verbose) {
           process.stderr.write(
@@ -265,18 +205,16 @@ async function runJob(job: FileJob, index: number, total: number): Promise<JobRe
             knownStats: preparedStats,
           })
         : await convertAsset(sourceFiles, convertOptions);
-    await mkdir(job.outputDir, { recursive: true });
     const outputs: Array<{ path: string; data: Uint8Array }> = [];
     for (const file of result.files) {
-      const path = join(job.outputDir, file.name);
-      await mkdir(dirname(path), { recursive: true });
-      await writeFile(path, file.data);
+      const path = await writeOutputFile(job.outputDir, file.name, file.data, signal);
       outputs.push({ path, data: file.data });
     }
     if (opts.json) {
-      const statsPath = join(job.outputDir, `${basename(job.name, extname(job.name))}.stats.json`);
-      await writeFile(
-        statsPath,
+      const statsName = `${basename(job.name, extname(job.name))}.stats.json`;
+      await writeOutputFile(
+        job.outputDir,
+        statsName,
         JSON.stringify(
           {
             ...result.stats,
@@ -287,6 +225,7 @@ async function runJob(job: FileJob, index: number, total: number): Promise<JobRe
           null,
           2,
         ),
+        signal,
       );
     }
     return { job, ok: true, outputs, result, durationMs: performance.now() - started };
@@ -302,15 +241,14 @@ async function runJob(job: FileJob, index: number, total: number): Promise<JobRe
 }
 
 async function main() {
-  const jobs = await collectJobs(inputs, opts.recursive);
+  const signal = operationController.signal;
+  const jobs = await collectJobs(inputs, opts.recursive, signal);
   if (jobs.length === 0) {
     console.error('No supported 3D files found.');
     process.exit(1);
   }
   const outputFormat = opts.format as OutputFormat;
   assertUniqueOutputs(jobs, outputFormat);
-  if (opts.output) await mkdir(resolve(opts.output), { recursive: true });
-
   const parallel = opts.parallel ?? Math.max(1, Math.min(8, cpus().length - 1));
   console.error(
     `Converting ${jobs.length} asset(s) to ${outputFormat.toUpperCase()} with parallelism ${parallel}…`,
@@ -320,19 +258,17 @@ async function main() {
   async function worker() {
     while (cursor < jobs.length) {
       const index = cursor++;
-      results[index] = await runJob(jobs[index], index, jobs.length);
+      results[index] = await runJob(jobs[index], index, jobs.length, signal);
     }
   }
   await Promise.all(Array.from({ length: Math.min(parallel, jobs.length) }, () => worker()));
 
-  if (opts.zip) {
-    const zip = new JSZip();
-    for (const result of results) {
-      for (const output of result.outputs ?? []) zip.file(basename(output.path), output.data);
-    }
-    const buffer = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
-    const zipPath = join(resolve(opts.output ?? process.cwd()), 'modelshift.zip');
-    await writeFile(zipPath, buffer);
+  if (opts.zip && !signal.aborted) {
+    const zipPath = await writeZipArchive(
+      opts.output ?? process.cwd(),
+      results.flatMap((result) => result.outputs ?? []),
+      signal,
+    );
     console.error(`  → ${zipPath}`);
   }
 
@@ -351,11 +287,20 @@ async function main() {
   }
   const failed = results.length - succeeded;
   console.error(`\n${succeeded} ok, ${failed} failed.`);
+  if (signal.aborted) {
+    process.exitCode = 130;
+    return;
+  }
   if (failed > 0 && succeeded === 0) process.exit(2);
   if (failed > 0) process.exit(4);
 }
 
 main().catch((error) => {
+  if (operationController.signal.aborted) {
+    console.error('Cancelled.');
+    process.exitCode = 130;
+    return;
+  }
   console.error('Fatal:', error);
   process.exit(1);
 });

@@ -2,9 +2,10 @@
  * Public format-agnostic conversion API shared by the CLI and web client.
  */
 import { exportAsset, readAssimpScene, statsFromAssimpScene } from './exportAsset.js';
-import { exportPreparedGlb } from './exportPrepared.js';
+import { exportGltfToGlb, exportPreparedGlb } from './exportPrepared.js';
 import { InputTooLargeError } from './errors.js';
-import { makeProgress } from './progress.js';
+import { inspectGltf } from './inspect.js';
+import { makeProgress, throwIfAborted } from './progress.js';
 import { requireOutputFormat } from './formats.js';
 import {
   DEFAULT_OPTIONS,
@@ -17,6 +18,8 @@ import {
   type ConvertStats,
   type ConvertWarning,
   type OutputFormat,
+  MAX_INPUT_FILES,
+  validateConvertOptions,
 } from '../shared/options.js';
 
 export * from '../shared/options.js';
@@ -29,7 +32,7 @@ export { exportPreparedGlb } from './exportPrepared.js';
 export { inspectGltf, inspectScene } from './inspect.js';
 export { optimizeGltf, type OptimizeResult, type OptimizeChange } from './optimize.js';
 
-const DEFAULT_MAX_INPUT_BYTES = 200 * 1024 * 1024;
+export const DEFAULT_MAX_INPUT_BYTES = 200 * 1024 * 1024;
 
 export function getMaxInputBytes(): number {
   const configuredMb =
@@ -38,9 +41,38 @@ export function getMaxInputBytes(): number {
       : undefined;
   if (configuredMb === undefined) return DEFAULT_MAX_INPUT_BYTES;
   const parsedMb = Number(configuredMb);
-  return Number.isFinite(parsedMb) && parsedMb >= 0
-    ? parsedMb * 1024 * 1024
+  const bytes = parsedMb * 1024 * 1024;
+  return Number.isFinite(parsedMb) && Number.isSafeInteger(bytes) && parsedMb >= 0
+    ? bytes
     : DEFAULT_MAX_INPUT_BYTES;
+}
+
+function validateAssetFiles(files: AssetFile[]): void {
+  if (files.length > MAX_INPUT_FILES) {
+    throw new RangeError(`An input bundle cannot contain more than ${MAX_INPUT_FILES} files.`);
+  }
+  for (const [index, file] of files.entries()) {
+    if (!file || typeof file.name !== 'string' || file.name.trim().length === 0) {
+      throw new TypeError(`Input file ${index + 1} must have a non-empty name.`);
+    }
+    const normalized = file.name.replace(/\\/g, '/');
+    if (normalized.length > 4096) {
+      throw new RangeError(`Input file name "${file.name.slice(0, 80)}…" is too long.`);
+    }
+    const segments = normalized.split('/');
+    if (
+      normalized.startsWith('/') ||
+      /^[a-z]:/i.test(normalized) ||
+      segments.some(
+        (segment) => !segment || segment === '.' || segment === '..' || segment.includes('\0'),
+      )
+    ) {
+      throw new TypeError(`Input file name "${file.name}" must be a safe relative path.`);
+    }
+    if (!(file.data instanceof ArrayBuffer || file.data instanceof Uint8Array)) {
+      throw new TypeError(`Input file "${file.name}" must contain binary data.`);
+    }
+  }
 }
 
 function asAssetFiles(
@@ -56,6 +88,26 @@ function asAssetFiles(
 
 function byteLength(file: AssetFile): number {
   return file.data.byteLength;
+}
+
+function statsFromGltfInspection(
+  inspection: Awaited<ReturnType<typeof inspectGltf>>,
+  inputBytes: number,
+): ConvertStats {
+  return {
+    meshes: inspection.meshes,
+    materials: inspection.materials,
+    textures: inspection.textures,
+    animations: inspection.animations,
+    bones: inspection.bones,
+    morphTargets: inspection.morphTargets,
+    triangles: inspection.triangles,
+    vertices: inspection.vertices,
+    textureMaxSize: inspection.textureMaxSize,
+    inputBytes,
+    outputBytes: 0,
+    durationMs: 0,
+  };
 }
 
 export interface ConvertAssetOptions extends ConvertOptions {
@@ -86,12 +138,14 @@ export async function convertAsset(
   input: ArrayBuffer | Uint8Array | AssetFile | AssetFile[],
   options: ConvertAssetOptions = {},
 ): Promise<ConvertResult> {
+  validateConvertOptions(options);
   const opts = { ...DEFAULT_OPTIONS, ...options };
   const format = opts.outputFormat as OutputFormat;
   const definition = requireOutputFormat(format);
   const fallbackName = options.name ?? 'model.glb';
   const files = asAssetFiles(input, fallbackName);
   if (files.length === 0) throw new TypeError('At least one input file is required.');
+  validateAssetFiles(files);
 
   const primaryName = options.name ?? files[0].name;
   const inputBytes = files.reduce((sum, file) => sum + byteLength(file), 0);
@@ -103,17 +157,41 @@ export async function convertAsset(
   const started = performance.now();
   const progress = makeProgress(opts);
   progress('parse', 0);
-  const scene = options.knownStats ? undefined : await readAssimpScene(files);
+  const canInspectGltfDirectly =
+    !options.knownStats &&
+    definition.assimpId !== null &&
+    files.length === 1 &&
+    /\.(?:glb|gltf)$/i.test(files[0].name);
+  let scene;
+  let sourceStats: ConvertStats;
+  if (options.knownStats) {
+    sourceStats = {
+      ...options.knownStats,
+      inputBytes,
+      outputBytes: 0,
+      durationMs: 0,
+    };
+  } else if (canInspectGltfDirectly) {
+    sourceStats = statsFromGltfInspection(await inspectGltf(files[0].data), inputBytes);
+  } else {
+    scene = await readAssimpScene(files);
+    sourceStats = statsFromAssimpScene(scene, inputBytes);
+  }
   progress('parse', 1);
   progress('inspect', 0.5);
 
-  const outputFiles = await exportAsset(files, primaryName, format, opts, scene);
+  const selfContainedGltfToGlb =
+    format === 'glb' && files.length === 1 && /\.(?:glb|gltf)$/i.test(files[0].name);
+  const outputFiles = selfContainedGltfToGlb
+    ? await exportGltfToGlb(files[0], primaryName, opts)
+    : await exportAsset(files, primaryName, format, opts, scene);
+  throwIfAborted(opts.signal);
   const primary =
     outputFiles.find((file) => file.name.toLowerCase().endsWith(`.${definition.extension}`)) ??
     outputFiles[0];
   const outputBytes = outputFiles.reduce((sum, file) => sum + file.data.byteLength, 0);
   const stats = {
-    ...(options.knownStats ?? statsFromAssimpScene(scene!, inputBytes)),
+    ...sourceStats,
     inputBytes,
     outputBytes,
     durationMs: performance.now() - started,
@@ -157,6 +235,7 @@ export async function convertPreparedAsset(
     knownStats: NonNullable<ConvertAssetOptions['knownStats']>;
   },
 ): Promise<ConvertResult> {
+  validateConvertOptions(options);
   const opts = { ...DEFAULT_OPTIONS, ...options };
   const format = opts.outputFormat as OutputFormat;
   if (format === 'fbx' || format === 'glb' || format === 'gltf') {
@@ -170,6 +249,7 @@ export async function convertPreparedAsset(
   const definition = requireOutputFormat(format);
   const primaryName = options.name ?? file.name;
   const started = performance.now();
+  throwIfAborted(opts.signal);
   const files = await exportPreparedGlb(file, primaryName, format, opts);
   const primary =
     files.find((output) => output.name.toLowerCase().endsWith(`.${definition.extension}`)) ??

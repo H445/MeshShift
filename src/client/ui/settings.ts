@@ -20,6 +20,10 @@ export function createSettings(): SettingsHandle {
   const closeBtn = document.getElementById('settings-close-btn') as HTMLButtonElement;
   const formatEl = document.getElementById('opt-format') as HTMLSelectElement;
   const maxTexEl = document.getElementById('opt-max-tex') as HTMLSelectElement;
+  panel.setAttribute('role', 'dialog');
+  panel.setAttribute('aria-modal', 'true');
+  panel.setAttribute('aria-labelledby', 'settings-title');
+  let returnFocus: HTMLElement | null = null;
 
   function readControls(): ConvertOptions {
     return {
@@ -72,15 +76,50 @@ export function createSettings(): SettingsHandle {
   const controls: Array<HTMLInputElement | HTMLSelectElement> = [formatEl, maxTexEl];
   for (const control of controls) control.addEventListener('change', persistSettings);
 
+  function focusableElements(): HTMLElement[] {
+    return Array.from(
+      panel.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
+      ),
+    );
+  }
+
   function open() {
+    returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     panel.hidden = false;
+    requestAnimationFrame(() => focusableElements()[0]?.focus());
   }
   function close() {
+    if (panel.hidden) return;
     panel.hidden = true;
+    const focus = returnFocus;
+    returnFocus = null;
+    focus?.focus();
   }
   const togglePanel = () => (panel.hidden ? open() : close());
+  const onKeydown = (event: KeyboardEvent) => {
+    if (panel.hidden) return;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      close();
+      return;
+    }
+    if (event.key !== 'Tab') return;
+    const elements = focusableElements();
+    if (elements.length === 0) return;
+    const first = elements[0];
+    const last = elements[elements.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
   openBtn.addEventListener('click', togglePanel);
   closeBtn.addEventListener('click', close);
+  window.addEventListener('keydown', onKeydown);
 
   return {
     read: readControls,
@@ -88,6 +127,7 @@ export function createSettings(): SettingsHandle {
       for (const control of controls) control.removeEventListener('change', persistSettings);
       openBtn.removeEventListener('click', togglePanel);
       closeBtn.removeEventListener('click', close);
+      window.removeEventListener('keydown', onKeydown);
     },
   };
 }

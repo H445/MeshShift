@@ -22,6 +22,11 @@ export interface DetailPinPick {
   position: [number, number, number];
 }
 
+export interface ViewerFrameSample {
+  fps: number;
+  frameMs: number;
+}
+
 export interface ViewerHandle {
   setScene(root: THREE.Object3D): void;
   clear(): void;
@@ -41,6 +46,8 @@ export interface ViewerHandle {
   setAutoRotate(enabled: boolean): void;
   /** Returns whether idle auto-rotation is enabled. */
   isAutoRotate(): boolean;
+  /** Subscribe to one-second render cadence samples for adaptive previews. */
+  onPerformanceSample(listener: (sample: ViewerFrameSample) => void): () => void;
   /**
    * Enable click-to-pin interaction. Model clicks place pins while empty-space
    * drags and wheel gestures remain available for orbiting and zooming.
@@ -57,10 +64,11 @@ export type ViewerAxis = 'x' | 'y' | 'z' | null;
 
 const IDLE_ROTATE_DELAY_MS = 2500;
 const IDLE_ROTATE_SPEED = 0.35; // rad/s
+const MAX_PREVIEW_DEVICE_PIXEL_RATIO = 1.5;
+const MAX_PREVIEW_RENDER_PIXELS = 1_200_000;
 
 export function createViewer(canvas: HTMLCanvasElement): ViewerHandle {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   // Neutral tone mapping preserves texture contrast much more faithfully than
   // the previous bright ACES setup. That setup made scan noise nearly
@@ -188,11 +196,13 @@ export function createViewer(canvas: HTMLCanvasElement): ViewerHandle {
   }
 
   // --- Idle auto-rotation ------------------------------------------------
-  let autoRotateEnabled = true;
-  let autoRotate = true;
+  const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+  let autoRotateEnabled = !reducedMotion;
+  let autoRotate = !reducedMotion;
   let lastUserInteraction = 0;
   let axisLock: ViewerAxis = null;
   const axisLockListeners = new Set<(axis: ViewerAxis) => void>();
+  const performanceListeners = new Set<(sample: ViewerFrameSample) => void>();
   function notifyUser() {
     autoRotate = false;
     lastUserInteraction = performance.now();
@@ -293,6 +303,8 @@ export function createViewer(canvas: HTMLCanvasElement): ViewerHandle {
     }
   }, 500);
 
+  let sampledFrameCount = 0;
+  let sampleWindowStart = performance.now();
   let raf = 0;
   let lastFrame = performance.now();
   function frame() {
@@ -304,8 +316,28 @@ export function createViewer(canvas: HTMLCanvasElement): ViewerHandle {
       root.rotation.y += IDLE_ROTATE_SPEED * dt;
     }
 
-    controls.update();
-    renderer.render(scene, camera);
+    // Hidden panes still own a WebGL context, but rendering them every frame
+    // wastes GPU time while the user is looking at the other pane. This is
+    // especially noticeable after a large source scene has been loaded.
+    if (!canvas.hidden && canvas.clientWidth > 0 && canvas.clientHeight > 0) {
+      controls.update();
+      renderer.render(scene, camera);
+      sampledFrameCount += 1;
+      if (now - sampleWindowStart >= 1000) {
+        const sample = {
+          fps: (sampledFrameCount * 1000) / (now - sampleWindowStart),
+          frameMs: (now - sampleWindowStart) / sampledFrameCount,
+        };
+        sampledFrameCount = 0;
+        sampleWindowStart = now;
+        for (const listener of performanceListeners) listener(sample);
+      }
+    } else {
+      // Do not let time spent hidden turn the first visible sample into a
+      // false low-FPS reading.
+      sampledFrameCount = 0;
+      sampleWindowStart = now;
+    }
     raf = requestAnimationFrame(frame);
   }
   raf = requestAnimationFrame(frame);
@@ -317,6 +349,11 @@ export function createViewer(canvas: HTMLCanvasElement): ViewerHandle {
   function handleResize() {
     const { clientWidth: w, clientHeight: h } = canvas;
     if (w === 0 || h === 0) return;
+    const nativePixelRatio = window.devicePixelRatio || 1;
+    const pixelBudgetRatio = Math.sqrt(MAX_PREVIEW_RENDER_PIXELS / (w * h));
+    renderer.setPixelRatio(
+      Math.min(nativePixelRatio, MAX_PREVIEW_DEVICE_PIXEL_RATIO, pixelBudgetRatio),
+    );
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
@@ -460,6 +497,10 @@ export function createViewer(canvas: HTMLCanvasElement): ViewerHandle {
     isAutoRotate() {
       return autoRotateEnabled;
     },
+    onPerformanceSample(listener) {
+      performanceListeners.add(listener);
+      return () => performanceListeners.delete(listener);
+    },
     setDetailPinEditMode(enabled: boolean) {
       detailPinEditMode = enabled;
       pinPointerStart = null;
@@ -499,6 +540,7 @@ export function createViewer(canvas: HTMLCanvasElement): ViewerHandle {
       window.clearInterval(idleTimer);
       ro.disconnect();
       controls.removeEventListener('start', notifyUser);
+      performanceListeners.clear();
       canvas.removeEventListener('pointerdown', handlePointerDown, true);
       canvas.removeEventListener('pointerup', handlePointerUp, true);
       canvas.removeEventListener('pointercancel', handlePointerCancel, true);

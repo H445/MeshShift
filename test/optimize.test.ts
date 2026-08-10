@@ -78,6 +78,23 @@ function topologyStats(geometry: BufferGeometry): TopologyStats {
 }
 
 describe('topology-safe LOD decimation', () => {
+  it('stops optimization at a cooperative phase boundary after cancellation', async () => {
+    const controller = new AbortController();
+    await expect(
+      optimizeGltf(
+        new Uint8Array(readFileSync(resolve(process.cwd(), 'test/fixtures/sphere.glb'))),
+        {
+          generateLODs: 2,
+          maxTextureSize: 8192,
+          signal: controller.signal,
+          onProgress: (phase) => {
+            if (phase === 'optimize') controller.abort('optimization cancelled');
+          },
+        },
+      ),
+    ).rejects.toMatchObject({ name: 'AbortError', message: 'optimization cancelled' });
+  });
+
   it('keeps generated LOD levels separate when merging by material', async () => {
     const document = new Document();
     document.createBuffer();

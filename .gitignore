@@ -1,8 +1,10 @@
 node_modules/
+/.pnpm-store/
 dist/
 .vite/
 coverage/
 .cache/
+/artifacts/
 /.idea/
 
 *.log

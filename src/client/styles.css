@@ -25,6 +25,17 @@
   box-sizing: border-box;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition: none !important;
+  }
+}
+
 html,
 body {
   height: 100%;
@@ -1102,8 +1113,7 @@ body {
   width: 360px;
 }
 .settings-panel[hidden] {
-  display: flex;
-  transform: translateX(100%);
+  display: none;
 }
 .settings-header {
   display: flex;

@@ -25,6 +25,10 @@ export function createProfiles(): ProfilesHandle {
     { length: 4 },
     (_, index) => document.getElementById(`profile-lod-target-${index + 1}`) as HTMLInputElement,
   );
+  panel.setAttribute('role', 'dialog');
+  panel.setAttribute('aria-modal', 'true');
+  panel.setAttribute('aria-labelledby', 'profiles-title');
+  let returnFocus: HTMLElement | null = null;
   const changeHandlers = new Set<(options: ConvertOptions) => void>();
 
   function readTargets(): number[] {
@@ -118,15 +122,50 @@ export function createProfiles(): ProfilesHandle {
   maxTrisEl.addEventListener('input', emitChange);
   for (const input of lodTargetEls) input.addEventListener('input', emitChange);
 
+  function focusableElements(): HTMLElement[] {
+    return Array.from(
+      panel.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
+      ),
+    );
+  }
+
   function open() {
+    returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     panel.hidden = false;
+    requestAnimationFrame(() => focusableElements()[0]?.focus());
   }
   function close() {
+    if (panel.hidden) return;
     panel.hidden = true;
+    const focus = returnFocus;
+    returnFocus = null;
+    focus?.focus();
   }
   const togglePanel = () => (panel.hidden ? open() : close());
+  const onKeydown = (event: KeyboardEvent) => {
+    if (panel.hidden) return;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      close();
+      return;
+    }
+    if (event.key !== 'Tab') return;
+    const elements = focusableElements();
+    if (elements.length === 0) return;
+    const first = elements[0];
+    const last = elements[elements.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
   openBtn.addEventListener('click', togglePanel);
   closeBtn.addEventListener('click', close);
+  window.addEventListener('keydown', onKeydown);
 
   return {
     read: readControls,
@@ -141,6 +180,7 @@ export function createProfiles(): ProfilesHandle {
       for (const input of lodTargetEls) input.removeEventListener('input', emitChange);
       openBtn.removeEventListener('click', togglePanel);
       closeBtn.removeEventListener('click', close);
+      window.removeEventListener('keydown', onKeydown);
       changeHandlers.clear();
     },
   };

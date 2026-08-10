@@ -14,6 +14,7 @@ import { createRequire } from 'node:module';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { copyVendorFiles } from './copy-vendor.mjs';
+import { writeReleaseManifest } from './release-manifest.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = resolve(__dirname, '..');
@@ -82,6 +83,7 @@ async function build() {
     resolve(root, 'THIRD_PARTY_NOTICES.md'),
     resolve(root, 'dist', 'client', 'THIRD_PARTY_NOTICES.md'),
   );
+  await writeReleaseManifest(root);
   console.log('\n✅ Build complete.');
   console.log('   • dist/core/index.js          (Node API)');
   console.log('   • dist/cli/modelshift.mjs     (CLI)');

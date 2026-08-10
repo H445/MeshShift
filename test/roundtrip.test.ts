@@ -42,6 +42,10 @@ interface AssjsonScene {
   skins?: unknown[];
 }
 
+interface AssjsonMesh {
+  bones?: unknown[];
+}
+
 describe('round-trip: FBX output is parseable by assimp', () => {
   it('cube.glb → FBX → assjson has at least 1 mesh', async () => {
     const fbx = (await convertGltfToFbx(load('cube.glb'), { name: 'cube.glb' })).data;
@@ -54,8 +58,8 @@ describe('round-trip: FBX output is parseable by assimp', () => {
       .data;
     const scene = (await parseFbxToScene(fbx)) as AssjsonScene;
     expect((scene.meshes ?? []).length).toBeGreaterThan(0);
-    // Skin/bones may be present in the scene structure
-    expect(scene.skins?.length ?? 0).toBeGreaterThanOrEqual(0);
+    const mesh = scene.meshes?.[0] as AssjsonMesh | undefined;
+    expect(mesh?.bones?.length ?? 0).toBeGreaterThan(0);
   });
 
   it('animated-cube.glb → FBX is a valid, parseable FBX', async () => {

@@ -1,0 +1,139 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Node ${{ matrix.node }} quality gates
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22]
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10.30.1
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Audit production dependencies
+        run: pnpm audit --prod --audit-level=high
+      - name: Generate production SBOM
+        run: pnpm run sbom
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: modelshift-sbom-node-${{ matrix.node }}
+          path: artifacts/sbom.cdx.json
+          if-no-files-found: error
+      - name: Run release gates
+        run: pnpm run release:check
+      - name: Upload reliability evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: modelshift-reliability-node-${{ matrix.node }}
+          path: artifacts/reliability-baseline.json
+          if-no-files-found: error
+
+  platform-smoke:
+    name: ${{ matrix.os }} Node 22 platform smoke
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10.30.1
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Audit production dependencies
+        run: pnpm audit --prod --audit-level=high
+      - name: Run quality gates
+        run: pnpm run check
+      - name: Build distributable surfaces
+        run: pnpm run build
+      - name: Verify package contents
+        run: pnpm run verify:package
+      - name: Verify release artifacts
+        run: pnpm run verify:release
+      - name: Exercise packaged CLI surface
+        run: node dist/cli/modelshift.mjs --help
+
+  release-evidence:
+    name: Package and attest release evidence
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10.30.1
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build and verify release candidate
+        run: pnpm run release:check
+      - name: Generate SBOM
+        run: pnpm run sbom
+      - name: Write machine-readable test report
+        run: pnpm run test:report
+      - name: Package release candidate
+        run: pnpm pack --pack-destination artifacts
+      - name: Verify exact packed consumer
+        run: pnpm run packed-consumer:verify -- artifacts/*.tgz
+      - name: Assemble retained evidence
+        shell: bash
+        run: |
+          cp dist/RELEASE-MANIFEST.json artifacts/RELEASE-MANIFEST.json
+          cp docs/performance-baseline.json artifacts/performance-baseline.json
+      - name: Upload package and release evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: modelshift-release-${{ github.sha }}
+          path: |
+            artifacts/*.tgz
+            artifacts/RELEASE-MANIFEST.json
+            artifacts/sbom.cdx.json
+            artifacts/test-results.json
+            artifacts/benchmark-baseline.json
+            artifacts/reliability-baseline.json
+            artifacts/packed-consumer-smoke.json
+            artifacts/performance-baseline.json
+          if-no-files-found: error
+      - name: Attest package provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: artifacts/*.tgz

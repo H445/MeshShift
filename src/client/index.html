@@ -28,6 +28,7 @@
         </div>
         <div class="topbar-actions">
           <button
+            type="button"
             id="profiles-btn"
             class="menu-btn"
             title="Optimization profiles"
@@ -35,7 +36,13 @@
           >
             Profiles
           </button>
-          <button id="settings-btn" class="icon-btn" title="Settings" aria-label="Settings">
+          <button
+            type="button"
+            id="settings-btn"
+            class="icon-btn"
+            title="Settings"
+            aria-label="Settings"
+          >
             <svg
               width="18"
               height="18"
@@ -136,6 +143,7 @@
               </button>
               <span class="axis-lock-separator" aria-hidden="true"></span>
               <button
+                type="button"
                 class="icon-btn wireframe-btn"
                 id="wireframe-input-btn"
                 title="Toggle wireframe"
@@ -181,10 +189,13 @@
               <p class="empty-sub">
                 GLB, glTF, FBX, OBJ, STL, PLY, DAE, and 3DS · include companion files
               </p>
-              <button class="btn btn-secondary" id="pick-file-btn">Choose files</button>
+              <button type="button" class="btn btn-secondary" id="pick-file-btn">
+                Choose files
+              </button>
               <input
                 type="file"
                 id="file-input"
+                aria-label="Choose 3D asset files"
                 accept=".glb,.gltf,.fbx,.obj,.stl,.ply,.dae,.3ds,.mtl,.bin,.png,.jpg,.jpeg,.webp,.bmp,.tga,.dds"
                 multiple
                 hidden
@@ -277,6 +288,7 @@
               </button>
               <span class="axis-lock-separator" aria-hidden="true"></span>
               <button
+                type="button"
                 class="icon-btn detail-pin-btn"
                 id="detail-pin-edit-btn"
                 title="Add or remove detail pins"
@@ -301,6 +313,7 @@
                 </svg>
               </button>
               <button
+                type="button"
                 class="icon-btn wireframe-btn"
                 id="wireframe-output-btn"
                 title="Toggle wireframe"
@@ -403,7 +416,11 @@
               class="queue-master-check"
               title="Toggle all files in/out of the conversion batch"
             >
-              <input type="checkbox" id="master-check" />
+              <input
+                type="checkbox"
+                id="master-check"
+                aria-label="Include all files in conversion"
+              />
             </label>
             <h2>Files <span class="queue-count" id="queue-count">0</span></h2>
             <div class="queue-global-lods" id="queue-global-lods" hidden></div>
@@ -429,33 +446,58 @@
             </svg>
           </button>
           <div class="queue-actions">
-            <button class="btn btn-secondary" id="load-btn" title="Replace the active model">
+            <button
+              type="button"
+              class="btn btn-secondary"
+              id="load-btn"
+              title="Replace the active model"
+            >
               Load
             </button>
-            <button class="btn btn-secondary" id="add-more-btn" title="Add more files">
+            <button
+              type="button"
+              class="btn btn-secondary"
+              id="add-more-btn"
+              title="Add more files"
+            >
               + Add files
             </button>
             <button
+              type="button"
               class="btn btn-secondary"
               id="preview-opt-btn"
               title="Generate an optimized model and show it in the OUTPUT viewer without exporting"
             >
               Generate optimized preview
             </button>
-            <button class="btn btn-primary" id="convert-all-btn">Convert all</button>
-            <button class="btn btn-secondary" id="clear-btn">Clear</button>
-            <button class="btn btn-primary" id="save-all-btn" hidden>
+            <button type="button" class="btn btn-primary" id="convert-all-btn">Convert all</button>
+            <button type="button" class="btn btn-secondary" id="clear-btn">Clear</button>
+            <button type="button" class="btn btn-primary" id="save-all-btn" hidden>
               Save all again to exports/
             </button>
           </div>
         </header>
-        <ul class="queue-list" id="queue-list"></ul>
+        <ul class="queue-list" id="queue-list" aria-label="Conversion queue"></ul>
       </section>
 
-      <aside class="settings-panel" id="settings-panel" hidden>
+      <aside
+        class="settings-panel"
+        id="settings-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settings-title"
+        hidden
+      >
         <header class="settings-header">
-          <h3>Settings</h3>
-          <button class="icon-btn" id="settings-close-btn" aria-label="Close">×</button>
+          <h3 id="settings-title">Settings</h3>
+          <button
+            type="button"
+            class="icon-btn"
+            id="settings-close-btn"
+            aria-label="Close settings"
+          >
+            ×
+          </button>
         </header>
         <div class="settings-body">
           <div class="settings-section">
@@ -493,10 +535,24 @@
         </footer>
       </aside>
 
-      <aside class="settings-panel profiles-panel" id="profiles-panel" hidden>
+      <aside
+        class="settings-panel profiles-panel"
+        id="profiles-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="profiles-title"
+        hidden
+      >
         <header class="settings-header">
-          <h3>Profiles</h3>
-          <button class="icon-btn" id="profiles-close-btn" aria-label="Close">×</button>
+          <h3 id="profiles-title">Profiles</h3>
+          <button
+            type="button"
+            class="icon-btn"
+            id="profiles-close-btn"
+            aria-label="Close profiles"
+          >
+            ×
+          </button>
         </header>
         <div class="settings-body">
           <div class="settings-section">

@@ -12,6 +12,7 @@ import {
   convertBatch,
   InputTooLargeError,
 } from '../src/core/index.js';
+import { makeProgress } from '../src/core/progress.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const fixturesDir = resolve(__dirname, 'fixtures');
@@ -63,6 +64,30 @@ function makeSelfContainedGltf(): Uint8Array {
 }
 
 describe('convertGltfToFbx', () => {
+  it('rejects a conversion that is already aborted', async () => {
+    const controller = new AbortController();
+    controller.abort('cancel before parse');
+
+    await expect(
+      convertAsset(load('cube.glb'), {
+        name: 'cube.glb',
+        signal: controller.signal,
+      }),
+    ).rejects.toMatchObject({ name: 'AbortError', message: 'cancel before parse' });
+  });
+
+  it('stops at a cooperative progress boundary after cancellation', async () => {
+    const controller = new AbortController();
+
+    await expect(
+      convertAsset(load('cube.glb'), {
+        name: 'cube.glb',
+        signal: controller.signal,
+        onProgress: () => controller.abort(),
+      }),
+    ).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
   it('converts cube.glb to a non-empty FBX', async () => {
     const result = await convertGltfToFbx(load('cube.glb'), { name: 'cube.glb' });
     expect(result.data.byteLength).toBeGreaterThan(64);
@@ -75,11 +100,13 @@ describe('convertGltfToFbx', () => {
   it('converts animated-cube.glb', async () => {
     const result = await convertGltfToFbx(load('animated-cube.glb'), { name: 'animated-cube.glb' });
     expect(result.data.byteLength).toBeGreaterThan(64);
+    expect(result.stats.animations).toBe(1);
   });
 
   it('converts skinned-cube.glb (with bones)', async () => {
     const result = await convertGltfToFbx(load('skinned-cube.glb'), { name: 'skinned-cube.glb' });
     expect(result.data.byteLength).toBeGreaterThan(64);
+    expect(result.stats.bones).toBeGreaterThan(0);
   });
 
   it('converts a self-contained .gltf JSON document', async () => {
@@ -140,6 +167,50 @@ describe('convertGltfToFbx', () => {
       if (prev === undefined) delete process.env.G2F_MAX_FILE_MB;
       else process.env.G2F_MAX_FILE_MB = prev;
     }
+  });
+
+  it('falls back when the configured size cap would overflow a safe byte count', async () => {
+    const prev = process.env.G2F_MAX_FILE_MB;
+    process.env.G2F_MAX_FILE_MB = '1e308';
+    try {
+      await expect(convertGltfToFbx(load('cube.glb'), { name: 'cube.glb' })).resolves.toMatchObject(
+        { filename: 'cube.fbx' },
+      );
+    } finally {
+      if (prev === undefined) delete process.env.G2F_MAX_FILE_MB;
+      else process.env.G2F_MAX_FILE_MB = prev;
+    }
+  });
+
+  it('rejects unsafe in-memory companion names before parsing', async () => {
+    await expect(
+      convertAsset(
+        [
+          { name: 'model.gltf', data: new Uint8Array([1]) },
+          { name: '../outside.bin', data: new Uint8Array([2]) },
+        ],
+        { outputFormat: 'glb' },
+      ),
+    ).rejects.toThrow('safe relative path');
+  });
+
+  it('rejects invalid public optimization options instead of silently clamping them', async () => {
+    await expect(
+      convertAsset(load('cube.glb'), { outputFormat: 'glb', generateLODs: 9 }),
+    ).rejects.toThrow('generateLODs must be an integer');
+    await expect(
+      convertAsset(load('cube.glb'), { outputFormat: 'glb', maxTriangles: Number.NaN }),
+    ).rejects.toThrow('maxTriangles must be an integer');
+  });
+
+  it('rejects oversized input bundles before parsing', async () => {
+    const files = Array.from({ length: 4_097 }, (_, index) => ({
+      name: `file-${index}.bin`,
+      data: new Uint8Array([index % 256]),
+    }));
+    await expect(convertAsset(files, { outputFormat: 'glb' })).rejects.toThrow(
+      'cannot contain more than 4096 files',
+    );
   });
 
   it('throws ParseError on garbage input', async () => {
@@ -203,6 +274,27 @@ describe('convertBatch', () => {
     ]);
   });
 
+  it('reports cooperative cancellation for every batch item without rejecting the batch promise', async () => {
+    const controller = new AbortController();
+    const result = await convertBatch(
+      ['cube.glb', 'animated-cube.glb', 'skinned-cube.glb'].map((name) => ({
+        name,
+        data: load(name),
+      })),
+      { maxConcurrency: 2, signal: controller.signal },
+      (_index, phase) => {
+        if (phase === 'parse') controller.abort('batch cancelled');
+      },
+    );
+
+    expect(result.succeeded).toHaveLength(0);
+    expect(result.failed).toHaveLength(3);
+    expect(result.failed.every((failure) => failure.error.name === 'AbortError')).toBe(true);
+    expect(result.failed.every((failure) => failure.error.message === 'batch cancelled')).toBe(
+      true,
+    );
+  });
+
   it('uses the default worker count when concurrency is not finite', async () => {
     const result = await convertBatch([{ name: 'cube.glb', data: load('cube.glb') }], {
       maxConcurrency: Number.NaN,
@@ -222,5 +314,14 @@ describe('progress callback', () => {
     expect(events.length).toBeGreaterThan(0);
     // Last event should be 1.0 (complete)
     expect(events[events.length - 1].pct).toBe(1);
+  });
+
+  it('normalizes non-finite progress values before invoking callbacks', () => {
+    const events: number[] = [];
+    const progress = makeProgress({ onProgress: (_phase, pct) => events.push(pct) });
+    progress('parse', Number.NaN);
+    progress('parse', Number.POSITIVE_INFINITY);
+    progress('parse', 2);
+    expect(events).toEqual([0, 0, 1]);
   });
 });

@@ -173,6 +173,13 @@ const OPTIMIZED_PREVIEW_PHASE_LABELS: Record<ConvertPhase, string> = {
   post: 'Finalizing optimized preview…',
 };
 
+// Keep the first paint faithful to the source, then fall back only when the
+// live rotating preview cannot sustain the interaction target. This avoids
+// adding optimization latency to ordinary assets while keeping scan-sized
+// meshes usable on slower GPUs.
+const PREVIEW_FALLBACK_TRIANGLE_THRESHOLD = 750_000;
+const PREVIEW_FALLBACK_TRIANGLE_CAP = 500_000;
+
 const queue = createQueue(queueList);
 interface FileRow {
   id: string;
@@ -189,6 +196,10 @@ interface FileRow {
     key: string;
     result: OptimizeResult;
   };
+  /** Cache the adaptive, preview-only reduction for slower devices. */
+  previewPerformanceResult?: OptimizeResult;
+  previewPerformancePromise?: Promise<OptimizeResult | undefined>;
+  previewPerformanceChecked?: boolean;
   optimizationReport?: {
     key: string;
     before: InspectResult;
@@ -204,6 +215,50 @@ let outputPinEntryId: string | null = null;
 let inputPreviewRequest = 0;
 let outputPreviewRequest = 0;
 let conversionRunning = false;
+
+inputViewer.onPerformanceSample((sample) => {
+  if (sample.fps >= 30 || !inputViewer.isAutoRotate()) return;
+  const entry = activeId ? fileRows.find((row) => row.id === activeId) : undefined;
+  if (!entry) return;
+  if (
+    entry.previewPerformanceChecked ||
+    entry.previewPerformancePromise ||
+    entry.previewPerformanceResult
+  ) {
+    return;
+  }
+  const normalizedPromise = entry.previewNormalizedPromise;
+  if (!normalizedPromise) return;
+  const sourceFile = entry.file;
+  const request = inputPreviewRequest;
+  entry.previewPerformanceChecked = true;
+  entry.previewPerformancePromise = normalizedPromise
+    .then(async (normalized) => {
+      if (normalized.stats.triangles <= PREVIEW_FALLBACK_TRIANGLE_THRESHOLD) return undefined;
+      const optimized = await optimizeInWorker(normalized.data.slice(), {
+        maxTriangles: PREVIEW_FALLBACK_TRIANGLE_CAP,
+        maxTextureSize: Math.min(2048, normalized.stats.textureMaxSize || 2048),
+      });
+      if (activeId !== entry.id || inputPreviewRequest !== request || entry.file !== sourceFile) {
+        return undefined;
+      }
+      const gltf = await parsePreviewGlb(optimized.data);
+      if (activeId !== entry.id) return undefined;
+      inputViewer.setScene(gltf.scene);
+      return optimized;
+    })
+    .then((result) => {
+      if (result) entry.previewPerformanceResult = result;
+      return result;
+    })
+    .catch((error) => {
+      console.warn('Adaptive preview reduction failed:', error);
+      return undefined;
+    })
+    .finally(() => {
+      entry.previewPerformancePromise = undefined;
+    });
+});
 
 function optimizationOptionsForEntry(entry: FileRow): ConvertOptions {
   return {
@@ -563,6 +618,9 @@ function replaceActiveFiles(files: File[]) {
   entry.inspectPromise = undefined;
   entry.previewNormalizedPromise = undefined;
   entry.optimizedPreview = undefined;
+  entry.previewPerformanceResult = undefined;
+  entry.previewPerformancePromise = undefined;
+  entry.previewPerformanceChecked = false;
   entry.optimizationReport = undefined;
   entry.detailPins = [];
   entry.detailPinsDirty = false;
@@ -735,6 +793,29 @@ async function previewInput(entry: FileRow, file: File): Promise<InspectResult> 
     updateInputLoading(request, 0.92, 'Parsing preview scene…');
     await nextPaint();
     const gltf = await parsePreviewGlb(normalized.data);
+    if (request !== inputPreviewRequest || entry.file !== file || activeId !== entry.id) {
+      const error = new Error('Preview loading was superseded.');
+      error.name = 'AbortError';
+      throw error;
+    }
+
+    // Attach the scene before the optional metadata walk. inspectScene() is
+    // intentionally synchronous, and on large assets it can still take long
+    // enough to make the preview feel frozen even though parsing is complete.
+    // Let the viewer paint once so the model is visible before that work.
+    updateInputLoading(request, 0.94, 'Sending model to the viewer…');
+    await nextPaint();
+    inputEmpty.hidden = true;
+    inputCanvas.hidden = false;
+    inputViewer.setScene(gltf.scene);
+    await nextPaint();
+
+    if (request !== inputPreviewRequest || entry.file !== file || activeId !== entry.id) {
+      const error = new Error('Preview loading was superseded.');
+      error.name = 'AbortError';
+      throw error;
+    }
+
     updateInputLoading(request, 0.96, 'Inspecting scene metadata…');
     const { inspectScene } = await import('@core');
     const info = inspectScene(gltf.scene, gltf.animations);
@@ -744,17 +825,19 @@ async function previewInput(entry: FileRow, file: File): Promise<InspectResult> 
       syncFileLodLevels(entry);
     }
 
-    if (request !== inputPreviewRequest || entry.file !== file || activeId !== entry.id) {
-      const error = new Error('Preview loading was superseded.');
-      error.name = 'AbortError';
-      throw error;
+    // Keep source inspection truthful even when a previous slow-device run
+    // cached a lighter display mesh. Replace the already-inspected scene only
+    // after the source metadata has been collected.
+    if (entry.previewPerformanceResult) {
+      const fallback = await parsePreviewGlb(entry.previewPerformanceResult.data);
+      if (request !== inputPreviewRequest || entry.file !== file || activeId !== entry.id) {
+        const error = new Error('Preview loading was superseded.');
+        error.name = 'AbortError';
+        throw error;
+      }
+      inputViewer.setScene(fallback.scene);
     }
 
-    updateInputLoading(request, 0.98, 'Sending model to the viewer…');
-    await nextPaint();
-    inputEmpty.hidden = true;
-    inputCanvas.hidden = false;
-    inputViewer.setScene(gltf.scene);
     updateInputLoading(request, 1, 'Preview ready');
     await nextPaint();
     finishInputLoading(request);
@@ -1690,16 +1773,6 @@ async function saveAll() {
     saveAllBtn.disabled = false;
   }
 }
-
-// Keyboard: Esc closes settings
-window.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') {
-    for (const id of ['settings-panel', 'profiles-panel']) {
-      const panel = document.getElementById(id) as HTMLElement | null;
-      if (panel && !panel.hidden) panel.hidden = true;
-    }
-  }
-});
 
 // Resize hook
 window.addEventListener('resize', () => {

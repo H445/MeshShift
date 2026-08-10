@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "itemCount": 8,
+  "repetitions": 2,
+  "maxConcurrency": 8,
+  "maxElapsedMs": 5000,
+  "fixtureNames": [
+    "cube.glb",
+    "animated-cube.glb",
+    "skinned-cube.glb",
+    "sphere.glb"
+  ]
+}
