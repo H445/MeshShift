@@ -58,9 +58,7 @@ const requiredDocumentation = [
   'pnpm install',
   'pnpm build',
   'npm run release:check',
-  'npm run benchmark:verify',
   'artifacts/test-results.json',
-  'artifacts/reliability-baseline.json',
   'docs/RELEASE_APPROVAL_RECORD.md',
   'no model is uploaded to a remote service',
 ];

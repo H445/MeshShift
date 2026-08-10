@@ -33,8 +33,6 @@ referenced textures alongside the primary file.
 - [Core TypeScript API](docs/API.md)
 - [Architecture and preview pipeline](docs/ARCHITECTURE.md)
 - [LOD generation, texture reprojection, and vertex pins](docs/LOD.md)
-- [Development, safety limits, and limitations](docs/DEVELOPMENT.md)
-- [Release verification and evidence](docs/RELEASE.md)
 - [Format and feature matrix](docs/FORMAT_FEATURE_MATRIX.md)
 
 ## License
