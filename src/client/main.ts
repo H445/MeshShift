@@ -212,6 +212,7 @@ interface FileRow {
 const fileRows: FileRow[] = [];
 let activeId: string | null = null;
 let outputPinEntryId: string | null = null;
+let selectedDetailPinId: string | null = null;
 let inputPreviewRequest = 0;
 let outputPreviewRequest = 0;
 let conversionRunning = false;
@@ -317,6 +318,7 @@ function syncDetailPinUi(): void {
       : 'Generate an optimized preview with at least one LOD first';
 
   const pins = entry?.detailPins ?? [];
+  if (!pins.some((pin) => pin.id === selectedDetailPinId)) selectedDetailPinId = null;
   detailPinCount.textContent = String(pins.length);
   detailPinClearBtn.disabled = pins.length === 0;
   detailPinPanel.hidden = !entry || (pins.length === 0 && !outputViewer.isDetailPinEditMode());
@@ -325,12 +327,27 @@ function syncDetailPinUi(): void {
     const item = document.createElement('li');
     item.className = 'detail-pin-item';
     item.title = `${pin.meshName} · ${pin.position.map((value) => value.toFixed(4)).join(', ')}`;
+    const select = document.createElement('button');
+    select.type = 'button';
+    select.className = 'detail-pin-select';
+    select.setAttribute('aria-pressed', String(selectedDetailPinId === pin.id));
+    select.title = `Highlight pin on ${pin.meshName}`;
+    const dot = document.createElement('span');
+    dot.className = 'detail-pin-dot';
+    dot.setAttribute('aria-hidden', 'true');
     const level = document.createElement('span');
     level.className = 'detail-pin-level';
     level.textContent = `LOD${pin.lodLevel}+`;
     const mesh = document.createElement('span');
     mesh.className = 'detail-pin-mesh';
     mesh.textContent = pin.meshName;
+    select.append(dot, level, mesh);
+    select.addEventListener('click', () => {
+      const owner = detailPinEntry();
+      if (!owner || !owner.detailPins.some((candidate) => candidate.id === pin.id)) return;
+      selectedDetailPinId = selectedDetailPinId === pin.id ? null : pin.id;
+      syncDetailPinUi();
+    });
     const remove = document.createElement('button');
     remove.type = 'button';
     remove.className = 'detail-pin-remove';
@@ -341,10 +358,11 @@ function syncDetailPinUi(): void {
       const owner = detailPinEntry();
       if (owner) removeDetailPin(owner, pin.id);
     });
-    item.append(level, mesh, remove);
+    item.append(select, remove);
     detailPinList.append(item);
   }
   outputViewer.setDetailPins(pins);
+  outputViewer.setSelectedDetailPin(selectedDetailPinId);
   syncPreviewOptimizationLabel();
 }
 
@@ -372,6 +390,7 @@ function removeDetailPin(entry: FileRow, pinId: string): void {
   const next = entry.detailPins.filter((pin) => pin.id !== pinId);
   if (next.length === entry.detailPins.length) return;
   entry.detailPins = next;
+  if (selectedDetailPinId === pinId) selectedDetailPinId = null;
   invalidatePinnedOptimization(entry);
 }
 
@@ -586,8 +605,10 @@ function resetOutputPreview() {
   outputLoading.hidden = true;
   setDetailPinEditMode(false);
   outputPinEntryId = null;
+  selectedDetailPinId = null;
   outputViewer.clear();
   outputViewer.setDetailPins([]);
+  outputViewer.setSelectedDetailPin(null);
   outputViewer.setAxisLock(null);
   outputViewer.setWireframe(false);
   wireframeOutputBtn.setAttribute('aria-pressed', 'false');
@@ -1304,6 +1325,7 @@ detailPinClearBtn.addEventListener('click', () => {
   const entry = detailPinEntry();
   if (!entry || entry.detailPins.length === 0) return;
   entry.detailPins = [];
+  selectedDetailPinId = null;
   invalidatePinnedOptimization(entry);
   toast('Removed all detail pins from this model.', 'ok');
 });
@@ -1370,6 +1392,7 @@ function clearAll() {
   fileRows.length = 0;
   activeId = null;
   outputPinEntryId = null;
+  selectedDetailPinId = null;
   setDetailPinEditMode(false);
   queueHost.hidden = true;
   setMobilePane('input');
@@ -1377,6 +1400,7 @@ function clearAll() {
   inputViewer.clear();
   outputViewer.clear();
   outputViewer.setDetailPins([]);
+  outputViewer.setSelectedDetailPin(null);
   inputViewer.setAxisLock(null);
   outputViewer.setAxisLock(null);
   inputViewer.setWireframe(false);
@@ -1479,6 +1503,7 @@ async function generateOptimizedPreview() {
     updateProgress(1, 'Optimized preview ready');
     await nextPaint();
     finishOutputLoading(request);
+    if (outputPinEntryId !== target.id) selectedDetailPinId = null;
     outputPinEntryId = target.id;
     target.detailPinsDirty = false;
     syncDetailPinUi();
@@ -1706,6 +1731,7 @@ async function convertTargets(requestedId?: string) {
         updateOutputLoading(request, 0.995, 'Rendering converted preview…');
         await nextPaint();
         await previewGlb(autoPreview.data, autoPreview.label, request, autoPreview.lodLevels);
+        if (outputPinEntryId !== autoPreview.entryId) selectedDetailPinId = null;
         outputPinEntryId = autoPreview.entryId;
         syncDetailPinUi();
         updateOutputLoading(

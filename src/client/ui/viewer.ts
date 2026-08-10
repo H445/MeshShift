@@ -56,6 +56,8 @@ export interface ViewerHandle {
   isDetailPinEditMode(): boolean;
   /** Render persistent pin markers over the solid or wireframe model. */
   setDetailPins(pins: readonly DetailPin[]): void;
+  /** Highlight one persistent pin marker, or clear the current selection. */
+  setSelectedDetailPin(pinId: string | null): void;
   /** Subscribe to snapped mesh-vertex picks while detail-pin editing is active. */
   onDetailPointPick(listener: (pick: DetailPinPick) => void): () => void;
 }
@@ -119,8 +121,10 @@ export function createViewer(canvas: HTMLCanvasElement): ViewerHandle {
   const root = new THREE.Group();
   scene.add(root);
   let detailPins: readonly DetailPin[] = [];
+  let selectedDetailPinId: string | null = null;
   let detailPinEditMode = false;
   let detailPinMarkers: THREE.Group | null = null;
+  let detailPinHoverMarker: THREE.Mesh | null = null;
   const detailPointListeners = new Set<(pick: DetailPinPick) => void>();
   const pinRaycaster = new THREE.Raycaster();
   const pinPointer = new THREE.Vector2();
@@ -150,14 +154,30 @@ export function createViewer(canvas: HTMLCanvasElement): ViewerHandle {
     detailPinMarkers = null;
   }
 
+  function disposeDetailPinHoverMarker(): void {
+    if (!detailPinHoverMarker) return;
+    root.remove(detailPinHoverMarker);
+    disposeObject(detailPinHoverMarker);
+    detailPinHoverMarker = null;
+  }
+
+  function detailPinMarkerRadius(): number {
+    root.updateWorldMatrix(true, true);
+    const contentBounds = new THREE.Box3();
+    root.traverse((object) => {
+      const mesh = object as THREE.Mesh;
+      if (mesh.isMesh && !mesh.userData.__detailPinMarker) {
+        contentBounds.expandByObject(mesh);
+      }
+    });
+    const size = contentBounds.getSize(new THREE.Vector3());
+    return Math.max(1e-5, Math.max(size.x, size.y, size.z) * 0.012);
+  }
+
   function refreshDetailPinMarkers(): void {
     disposeDetailPinMarkers();
     if (detailPins.length === 0 || root.children.length === 0) return;
-    root.updateWorldMatrix(true, true);
-    const contentBounds = new THREE.Box3();
-    for (const child of root.children) contentBounds.expandByObject(child);
-    const size = contentBounds.getSize(new THREE.Vector3());
-    const markerRadius = Math.max(1e-5, Math.max(size.x, size.y, size.z) * 0.012);
+    const markerRadius = detailPinMarkerRadius();
     const markers = new THREE.Group();
     markers.name = 'MeshShift detail pins';
     markers.userData.__detailPinMarker = true;
@@ -175,10 +195,11 @@ export function createViewer(canvas: HTMLCanvasElement): ViewerHandle {
 
       const localPoint = new THREE.Vector3(...pin.position);
       const rootPoint = root.worldToLocal(targetMesh.localToWorld(localPoint));
+      const selected = selectedDetailPinId === pin.id;
       const marker = new THREE.Mesh(
-        new THREE.SphereGeometry(markerRadius, 12, 8),
+        new THREE.SphereGeometry(markerRadius * (selected ? 1.45 : 1), 12, 8),
         new THREE.MeshBasicMaterial({
-          color: 0x39c5ff,
+          color: selected ? 0xffe06b : 0x39c5ff,
           depthTest: false,
           depthWrite: false,
           toneMapped: false,
@@ -227,6 +248,75 @@ export function createViewer(canvas: HTMLCanvasElement): ViewerHandle {
       );
   }
 
+  function nearestDetailPoint(
+    clientX: number,
+    clientY: number,
+  ): { pick: DetailPinPick; rootPoint: THREE.Vector3 } | undefined {
+    const hit = detailPinIntersection(clientX, clientY);
+    const mesh = hit?.object as THREE.Mesh | undefined;
+    const face = hit?.face;
+    const position = mesh?.geometry?.attributes.position;
+    if (!hit || !mesh || !face || !position) return undefined;
+
+    const hitLocal = mesh.worldToLocal(hit.point.clone());
+    const vertices = [face.a, face.b, face.c];
+    let nearestVertex = vertices[0];
+    let nearestDistance = Number.POSITIVE_INFINITY;
+    for (const vertex of vertices) {
+      const dx = position.getX(vertex) - hitLocal.x;
+      const dy = position.getY(vertex) - hitLocal.y;
+      const dz = position.getZ(vertex) - hitLocal.z;
+      const distance = dx * dx + dy * dy + dz * dz;
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        nearestVertex = vertex;
+      }
+    }
+
+    const localPoint = new THREE.Vector3(
+      position.getX(nearestVertex),
+      position.getY(nearestVertex),
+      position.getZ(nearestVertex),
+    );
+    const lodMatch = /_LOD(\d+)$/i.exec(mesh.name);
+    return {
+      pick: {
+        meshKey: mesh.userData.meshShiftMeshKey as string,
+        meshName: mesh.name.replace(/_LOD\d+$/i, '') || 'mesh',
+        lodLevel: lodMatch ? Number(lodMatch[1]) : 0,
+        position: [localPoint.x, localPoint.y, localPoint.z],
+      },
+      rootPoint: root.worldToLocal(mesh.localToWorld(localPoint)),
+    };
+  }
+
+  function updateDetailPinHoverMarker(clientX: number, clientY: number): void {
+    const point = detailPinEditMode ? nearestDetailPoint(clientX, clientY) : undefined;
+    if (!point) {
+      disposeDetailPinHoverMarker();
+      return;
+    }
+
+    if (!detailPinHoverMarker) {
+      const markerRadius = detailPinMarkerRadius();
+      detailPinHoverMarker = new THREE.Mesh(
+        new THREE.SphereGeometry(1, 12, 8),
+        new THREE.MeshBasicMaterial({
+          color: 0xffc857,
+          depthTest: false,
+          depthWrite: false,
+          toneMapped: false,
+        }),
+      );
+      detailPinHoverMarker.userData.__detailPinMarker = true;
+      detailPinHoverMarker.name = 'MeshShift detail pin hover';
+      detailPinHoverMarker.renderOrder = 10_001;
+      detailPinHoverMarker.scale.setScalar(markerRadius * 1.55);
+      root.add(detailPinHoverMarker);
+    }
+    detailPinHoverMarker.position.copy(point.rootPoint);
+  }
+
   function handlePointerDown(event: PointerEvent) {
     if (detailPinEditMode) {
       const hit = detailPinIntersection(event.clientX, event.clientY);
@@ -250,47 +340,26 @@ export function createViewer(canvas: HTMLCanvasElement): ViewerHandle {
     const moved = Math.hypot(event.clientX - pointerStart.x, event.clientY - pointerStart.y);
     if (moved > 5) return;
 
-    const hit = detailPinIntersection(event.clientX, event.clientY);
-    const mesh = hit?.object as THREE.Mesh | undefined;
-    const face = hit?.face;
-    const position = mesh?.geometry?.attributes.position;
-    if (!hit || !mesh || !face || !position) return;
-
-    const hitLocal = mesh.worldToLocal(hit.point.clone());
-    const vertices = [face.a, face.b, face.c];
-    let nearestVertex = vertices[0];
-    let nearestDistance = Number.POSITIVE_INFINITY;
-    for (const vertex of vertices) {
-      const dx = position.getX(vertex) - hitLocal.x;
-      const dy = position.getY(vertex) - hitLocal.y;
-      const dz = position.getZ(vertex) - hitLocal.z;
-      const distance = dx * dx + dy * dy + dz * dz;
-      if (distance < nearestDistance) {
-        nearestDistance = distance;
-        nearestVertex = vertex;
-      }
-    }
-    const lodMatch = /_LOD(\d+)$/i.exec(mesh.name);
-    const pick: DetailPinPick = {
-      meshKey: mesh.userData.meshShiftMeshKey as string,
-      meshName: mesh.name.replace(/_LOD\d+$/i, '') || 'mesh',
-      lodLevel: lodMatch ? Number(lodMatch[1]) : 0,
-      position: [
-        position.getX(nearestVertex),
-        position.getY(nearestVertex),
-        position.getZ(nearestVertex),
-      ],
-    };
-    for (const listener of detailPointListeners) listener(pick);
+    const point = nearestDetailPoint(event.clientX, event.clientY);
+    if (!point) return;
+    for (const listener of detailPointListeners) listener(point.pick);
   }
   function handlePointerCancel(): void {
     pinPointerStart = null;
     controls.enableRotate = axisLock === null;
   }
+  function handlePointerMove(event: PointerEvent): void {
+    updateDetailPinHoverMarker(event.clientX, event.clientY);
+  }
+  function handlePointerLeave(): void {
+    disposeDetailPinHoverMarker();
+  }
   controls.addEventListener('start', notifyUser);
   canvas.addEventListener('pointerdown', handlePointerDown, { capture: true });
   canvas.addEventListener('pointerup', handlePointerUp, { capture: true });
   canvas.addEventListener('pointercancel', handlePointerCancel, { capture: true });
+  canvas.addEventListener('pointermove', handlePointerMove, { capture: true });
+  canvas.addEventListener('pointerleave', handlePointerLeave, { capture: true });
   canvas.addEventListener('wheel', notifyUser, { passive: true });
   canvas.addEventListener('touchstart', notifyUser, { passive: true });
   const idleTimer = window.setInterval(() => {
@@ -504,6 +573,7 @@ export function createViewer(canvas: HTMLCanvasElement): ViewerHandle {
     setDetailPinEditMode(enabled: boolean) {
       detailPinEditMode = enabled;
       pinPointerStart = null;
+      if (!enabled) disposeDetailPinHoverMarker();
       controls.enabled = true;
       controls.enableRotate = axisLock === null;
       canvas.classList.toggle('detail-pin-editing', enabled);
@@ -520,6 +590,15 @@ export function createViewer(canvas: HTMLCanvasElement): ViewerHandle {
         ...pin,
         position: [...pin.position] as [number, number, number],
       }));
+      if (!detailPins.some((pin) => pin.id === selectedDetailPinId)) {
+        selectedDetailPinId = null;
+      }
+      refreshDetailPinMarkers();
+    },
+    setSelectedDetailPin(pinId: string | null) {
+      if (pinId !== null && !detailPins.some((pin) => pin.id === pinId)) return;
+      if (selectedDetailPinId === pinId) return;
+      selectedDetailPinId = pinId;
       refreshDetailPinMarkers();
     },
     onDetailPointPick(listener) {
@@ -528,6 +607,7 @@ export function createViewer(canvas: HTMLCanvasElement): ViewerHandle {
     },
     clear() {
       disposeDetailPinMarkers();
+      disposeDetailPinHoverMarker();
       while (root.children.length) {
         const c = root.children[0];
         root.remove(c);
@@ -544,6 +624,8 @@ export function createViewer(canvas: HTMLCanvasElement): ViewerHandle {
       canvas.removeEventListener('pointerdown', handlePointerDown, true);
       canvas.removeEventListener('pointerup', handlePointerUp, true);
       canvas.removeEventListener('pointercancel', handlePointerCancel, true);
+      canvas.removeEventListener('pointermove', handlePointerMove, true);
+      canvas.removeEventListener('pointerleave', handlePointerLeave, true);
       canvas.removeEventListener('wheel', notifyUser);
       canvas.removeEventListener('touchstart', notifyUser);
       disposeObject(root);

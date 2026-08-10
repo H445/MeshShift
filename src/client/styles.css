@@ -289,9 +289,9 @@ body {
   left: 8px;
   z-index: 4;
   display: grid;
-  width: min(310px, calc(100% - 16px));
-  gap: 6px;
-  padding: 8px;
+  width: min(286px, calc(100% - 16px));
+  gap: 5px;
+  padding: 7px;
   border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
   border-radius: 7px;
   background: color-mix(in srgb, var(--bg-1) 95%, transparent);
@@ -339,13 +339,17 @@ body {
 }
 .detail-pin-panel p {
   margin: 0;
+  overflow: hidden;
   color: var(--fg-2);
   font-size: 10px;
   line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 #detail-pin-list {
   display: grid;
-  max-height: 116px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  max-height: 92px;
   gap: 3px;
   margin: 0;
   padding: 0;
@@ -354,14 +358,56 @@ body {
 }
 .detail-pin-item {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 6px;
-  padding: 4px 5px;
+  min-width: 0;
+  gap: 2px;
+  padding: 0;
   border: 1px solid var(--border);
   border-radius: 4px;
   background: var(--bg-2);
   font-size: 10px;
+}
+.detail-pin-item:focus-within {
+  border-color: var(--accent-dim);
+}
+.detail-pin-select {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 3px 4px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--fg-1);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+.detail-pin-select:hover,
+.detail-pin-select[aria-pressed='true'] {
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
+}
+.detail-pin-select[aria-pressed='true'] {
+  color: var(--fg-0);
+}
+.detail-pin-select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+.detail-pin-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.detail-pin-select[aria-pressed='true'] .detail-pin-dot {
+  background: var(--warn);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--warn) 28%, transparent);
 }
 .detail-pin-level {
   color: var(--accent);
@@ -384,6 +430,10 @@ body {
   cursor: pointer;
   font-size: 15px;
   line-height: 1;
+}
+.detail-pin-remove:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
 }
 .detail-pin-remove:hover {
   background: var(--bg-3);
