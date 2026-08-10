@@ -58,6 +58,10 @@ The reusable Node API is written to `dist/core/`, the CLI bundle is
 `dist/client/`. Use `pnpm preview` when testing the production build locally so
 the `exports/` writer remains available.
 
+## How to use the web app
+
+See the [initial walkthrough](docs/HOW_TO_USE.md) for opening a model, setting LOD triangle targets, generating an optimized preview, pinning vertices, and exporting the result.
+
 ## Export destination
 
 The web app automatically saves every successful conversion directly under the repository’s `exports/` directory instead of using the browser Downloads folder. A single conversion writes its output and companion files at the root of `exports/`. A batch conversion groups each converted asset into its own subdirectory to prevent companion-file name collisions. The **Save again** controls retry the write or overwrite the existing files.
