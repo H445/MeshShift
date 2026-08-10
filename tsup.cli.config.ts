@@ -9,7 +9,7 @@ const packageVersion = (
 ).version;
 
 export default defineConfig({
-  entry: { modelshift: 'src/cli/index.ts' },
+  entry: { meshshift: 'src/cli/index.ts' },
   format: ['esm'],
   target: 'node20',
   splitting: false,
@@ -33,6 +33,6 @@ export default defineConfig({
   },
   define: {
     __IS_BROWSER__: 'false',
-    __MODELSHIFT_VERSION__: JSON.stringify(packageVersion),
+    __MESHSHIFT_VERSION__: JSON.stringify(packageVersion),
   },
 });

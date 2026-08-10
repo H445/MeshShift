@@ -4,7 +4,7 @@ set -eu
 PROJECT_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
 if ! command -v node >/dev/null 2>&1; then
-  echo "ModelShift requires Node.js 20 or newer." >&2
+  echo "MeshShift requires Node.js 20 or newer." >&2
   exit 1
 fi
 

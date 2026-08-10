@@ -23,7 +23,7 @@ const requiredFiles = new Set([
   'SHIP_READINESS_REPORT.md',
   'dist/core/index.js',
   'dist/core/index.d.ts',
-  'dist/cli/modelshift.mjs',
+  'dist/cli/meshshift.mjs',
   'dist/client/index.html',
   'dist/vendor/assimpjs.js',
   'dist/vendor/assimpjs.wasm',

@@ -3,12 +3,12 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { basename, dirname, isAbsolute, relative, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
-export const EXPORT_API_PATH = '/__modelshift/exports';
+export const EXPORT_API_PATH = '/__meshshift/exports';
 export const DEFAULT_MAX_EXPORT_BYTES = 1024 * 1024 * 1024;
 const WINDOWS_RESERVED_NAME = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i;
 
 export function getMaxExportBytes(): number {
-  const configuredMb = process.env.MODELSHIFT_MAX_EXPORT_MB;
+  const configuredMb = process.env.MESHSHIFT_MAX_EXPORT_MB;
   if (configuredMb === undefined) return DEFAULT_MAX_EXPORT_BYTES;
   const parsedMb = Number(configuredMb);
   const bytes = parsedMb * 1024 * 1024;
@@ -193,7 +193,7 @@ export function createExportMiddleware(exportRoot: string) {
     response: ServerResponse,
     next: NextFunction,
   ): Promise<void> => {
-    const url = new URL(request.url ?? '/', 'http://modelshift.local');
+    const url = new URL(request.url ?? '/', 'http://meshshift.local');
     if (url.pathname !== EXPORT_API_PATH) {
       next();
       return;
@@ -230,7 +230,7 @@ export function createExportMiddleware(exportRoot: string) {
         json(response, error.statusCode, { error: error.message });
         return;
       }
-      console.error('Failed to save ModelShift export:', error);
+      console.error('Failed to save MeshShift export:', error);
       json(response, 500, { error: 'Could not write the export file.' });
     }
   };

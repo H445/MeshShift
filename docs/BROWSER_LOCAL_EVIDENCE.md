@@ -37,7 +37,7 @@ surface does not expose a reliable browser-chrome zoom control.
 The fixture `cube.glb` was loaded under this disposable filename:
 
 ```text
-modelshift_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx [QA] (final)!.glb
+meshshift_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx [QA] (final)!.glb
 ```
 
 At 375×800 the queue retained the full name in the accessible label and title,

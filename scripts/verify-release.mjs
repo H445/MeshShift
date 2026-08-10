@@ -19,12 +19,12 @@ for (const relativePath of requiredFiles) {
   }
 }
 
-const cli = await readFile(resolve(root, 'dist/cli/modelshift.mjs'), 'utf8').catch(() => '');
+const cli = await readFile(resolve(root, 'dist/cli/meshshift.mjs'), 'utf8').catch(() => '');
 if (!cli.startsWith('#!/usr/bin/env node'))
   failures.push('CLI artifact is missing its Node shebang.');
 
 const client = await readFile(resolve(root, 'dist/client/index.html'), 'utf8').catch(() => '');
-if (!client.includes('<title>ModelShift</title>')) {
+if (!client.includes('<title>MeshShift</title>')) {
   failures.push('browser artifact is missing the product title.');
 }
 
@@ -52,8 +52,8 @@ if (manifest.schemaVersion !== 1 || !Array.isArray(manifest.files)) {
 if (packageJson.engines?.node !== '>=20') {
   failures.push('package metadata must declare Node.js >=20.');
 }
-if (packageJson.bin?.modelshift !== 'dist/cli/modelshift.mjs') {
-  failures.push('package metadata points modelshift at an unexpected executable.');
+if (packageJson.bin?.meshshift !== 'dist/cli/meshshift.mjs') {
+  failures.push('package metadata points meshshift at an unexpected executable.');
 }
 
 if (failures.length > 0) {

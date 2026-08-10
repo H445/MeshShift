@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 export const RELEASE_FILES = [
   'dist/core/index.js',
   'dist/core/index.d.ts',
-  'dist/cli/modelshift.mjs',
+  'dist/cli/meshshift.mjs',
   'dist/vendor/assimpjs.js',
   'dist/vendor/assimpjs.wasm',
   'dist/client/index.html',

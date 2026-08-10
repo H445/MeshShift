@@ -1636,7 +1636,7 @@ export async function optimizeGltf(
     const m = obj as any;
     if (m.isMesh && !m.isSkinnedMesh && m.geometry) {
       const key = `mesh-${records.length}`;
-      m.userData = { ...m.userData, modelShiftMeshKey: key };
+      m.userData = { ...m.userData, meshShiftMeshKey: key };
       const before = m.geometry.index
         ? m.geometry.index.count / 3
         : m.geometry.attributes.position.count / 3;
@@ -1880,7 +1880,7 @@ export async function optimizeGltf(
           lodMesh.name = `${rec.mesh.name || 'mesh'}_LOD${result.level}`;
           lodMesh.userData = {
             ...rec.mesh.userData,
-            modelShiftMeshKey: rec.key,
+            meshShiftMeshKey: rec.key,
           };
           lodMesh.position.copy(rec.mesh.position);
           lodMesh.rotation.copy(rec.mesh.rotation);

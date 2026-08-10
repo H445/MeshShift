@@ -4,8 +4,8 @@
  */
 import { DEFAULT_LOD_TRIANGLE_RATIOS, type ConvertOptions } from '../../shared/options.js';
 
-const PROFILE_STORAGE_KEY = 'modelshift.profile.v1';
-const PREVIOUS_PROFILE_STORAGE_KEY = 'modelshift-3d.profile.v1';
+const PROFILE_STORAGE_KEY = 'meshshift.profile.v1';
+const PREVIOUS_PROFILE_STORAGE_KEY = 'meshshift-3d.profile.v1';
 const LEGACY_PROFILE_STORAGE_KEY = 'gltf-to-fbx.profile.v1';
 const LEGACY_SETTINGS_STORAGE_KEY = 'gltf-to-fbx.settings.v1';
 export interface ProfilesHandle {

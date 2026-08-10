@@ -106,7 +106,7 @@ function rejectPending(channel: WorkerChannel, error: Error): void {
 function createWorker(channel: WorkerChannel): Worker {
   const next = new Worker(new URL('../workers/normalize.worker.ts', import.meta.url), {
     type: 'module',
-    name: 'modelshift-model-worker',
+    name: 'meshshift-model-worker',
   });
   next.addEventListener('message', (event: MessageEvent<ModelWorkerResponse>) => {
     const message = event.data;

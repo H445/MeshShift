@@ -3,7 +3,7 @@
  * Production build — builds the reusable API, CLI, and web client in parallel.
  * Output:
  *   - dist/core/index.js + index.d.ts  (reusable Node API)
- *   - dist/cli/modelshift.mjs          (CLI, Node 20+)
+ *   - dist/cli/meshshift.mjs          (CLI, Node 20+)
  *   - dist/vendor/assimpjs.js, .wasm   (shared Node runtime)
  *   - dist/client/                     (relative static web build)
  */
@@ -86,7 +86,7 @@ async function build() {
   await writeReleaseManifest(root);
   console.log('\n✅ Build complete.');
   console.log('   • dist/core/index.js          (Node API)');
-  console.log('   • dist/cli/modelshift.mjs     (CLI)');
+  console.log('   • dist/cli/meshshift.mjs     (CLI)');
   console.log('   • dist/vendor/                 (shared Node runtime)');
   console.log('   • dist/client/index.html       (web UI)');
 }

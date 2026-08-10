@@ -27,7 +27,7 @@ declare const __IS_BROWSER__: boolean | undefined;
 const isBrowser =
   typeof __IS_BROWSER__ === 'boolean' ? __IS_BROWSER__ : typeof window !== 'undefined';
 
-const NODE_IMAGE_SOURCE = Symbol('modelshift.nodeImageSource');
+const NODE_IMAGE_SOURCE = Symbol('meshshift.nodeImageSource');
 
 interface NodeImageSource {
   blob: Blob;

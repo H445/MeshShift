@@ -319,7 +319,7 @@ function exportObj(
   const objName = outputFilename(primaryName, 'obj');
   const base = objName.slice(0, -4);
   const mtlName = `${base}.mtl`;
-  const obj: string[] = ['# ModelShift OBJ', `mtllib ${mtlName}`];
+  const obj: string[] = ['# MeshShift OBJ', `mtllib ${mtlName}`];
   let offset = 1;
 
   instances(scene).forEach(({ mesh, matrix, name }, meshIndex) => {
@@ -383,7 +383,7 @@ function exportObj(
     textureFiles.push({ name, data: bytesOf(source), mimeType: mimeForName(name) });
   }
 
-  const mtl: string[] = ['# ModelShift materials'];
+  const mtl: string[] = ['# MeshShift materials'];
   (scene.materials ?? [{}]).forEach((material, index) => {
     const [r, g, b, a] = materialColor(material);
     mtl.push('', `newmtl material_${index}`, `Kd ${r} ${g} ${b}`, `d ${a}`, 'illum 2');
@@ -427,7 +427,7 @@ function triangles(scene: AssimpScene) {
 function exportStl(scene: AssimpScene, primaryName: string): ConvertedFile[] {
   const tris = triangles(scene);
   const data = new Uint8Array(84 + tris.length * 50);
-  data.set(encoder.encode('ModelShift binary STL').slice(0, 80));
+  data.set(encoder.encode('MeshShift binary STL').slice(0, 80));
   const view = new DataView(data.buffer);
   view.setUint32(80, tris.length, true);
   let offset = 84;
@@ -465,7 +465,7 @@ function exportPly(scene: AssimpScene, primaryName: string): ConvertedFile[] {
   const lines = [
     'ply',
     'format ascii 1.0',
-    'comment ModelShift',
+    'comment MeshShift',
     `element vertex ${vertices.length}`,
     'property float x',
     'property float y',
@@ -580,7 +580,7 @@ function exportDae(scene: AssimpScene, primaryName: string): ConvertedFile[] {
   const document =
     '<?xml version="1.0" encoding="utf-8"?>' +
     '<COLLADA xmlns="http://www.collada.org/2005/11/COLLADASchema" version="1.4.1">' +
-    '<asset><contributor><authoring_tool>ModelShift</authoring_tool></contributor><unit name="meter" meter="1"/><up_axis>Y_UP</up_axis></asset>' +
+    '<asset><contributor><authoring_tool>MeshShift</authoring_tool></contributor><unit name="meter" meter="1"/><up_axis>Y_UP</up_axis></asset>' +
     `<library_effects>${effects}</library_effects>` +
     `<library_materials>${materialLibrary}</library_materials>` +
     `<library_geometries>${geometryLibrary}</library_geometries>` +

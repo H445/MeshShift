@@ -37,7 +37,7 @@ export const DEFAULT_MAX_INPUT_BYTES = 200 * 1024 * 1024;
 export function getMaxInputBytes(): number {
   const configuredMb =
     typeof process !== 'undefined' && process.env
-      ? (process.env.MODELSHIFT_MAX_FILE_MB ?? process.env.G2F_MAX_FILE_MB)
+      ? (process.env.MESHSHIFT_MAX_FILE_MB ?? process.env.G2F_MAX_FILE_MB)
       : undefined;
   if (configuredMb === undefined) return DEFAULT_MAX_INPUT_BYTES;
   const parsedMb = Number(configuredMb);
@@ -113,7 +113,7 @@ function statsFromGltfInspection(
 export interface ConvertAssetOptions extends ConvertOptions {
   /** Name used for the output basename. For byte-only input it also selects the importer. */
   name?: string;
-  /** Allow a trusted ModelShift-generated intermediate to exceed the external input limit. */
+  /** Allow a trusted MeshShift-generated intermediate to exceed the external input limit. */
   allowOversizedInput?: boolean;
   /** Metadata already collected while producing a trusted intermediate. */
   knownStats?: Pick<
@@ -225,7 +225,7 @@ export async function convertAsset(
 }
 
 /**
- * Export a GLB produced by ModelShift's own normalization/optimization pass.
+ * Export a GLB produced by MeshShift's own normalization/optimization pass.
  * Native formats go directly through Assimp, while static formats are written
  * from the glTF scene without creating a multi-gigabyte assjson intermediate.
  */

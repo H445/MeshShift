@@ -24,7 +24,7 @@ const documentationText = documentation
   .join('\n')
   .replace(/\s+/g, ' ');
 const packageJson = JSON.parse(await readFile(resolve(root, 'package.json'), 'utf8'));
-const cliPath = resolve(root, 'dist/cli/modelshift.mjs');
+const cliPath = resolve(root, 'dist/cli/meshshift.mjs');
 const fixturePath = resolve(root, 'test/fixtures/cube.glb');
 
 const run = (args) =>
@@ -90,7 +90,7 @@ if (version.stdout.trim() !== packageJson.version) {
   );
 }
 
-const temporaryRoot = await mkdtemp(join(tmpdir(), 'modelshift-docs-'));
+const temporaryRoot = await mkdtemp(join(tmpdir(), 'meshshift-docs-'));
 try {
   await run([cliPath, fixturePath, '--output', temporaryRoot, '--json']);
   const cliOutput = new Uint8Array(await readFile(resolve(temporaryRoot, 'cube.fbx')));

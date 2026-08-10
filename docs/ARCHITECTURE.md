@@ -21,7 +21,7 @@ temporary GLB generation run inside that worker, keeping the page controls and
 progress animation responsive even for scan-sized meshes.
 
 Once normalization finishes, the page parses the temporary GLB, inspects its
-scene metadata, and sends it to the three.js viewer. ModelShift reuses glTF
+scene metadata, and sends it to the three.js viewer. MeshShift reuses glTF
 accessor bounds instead of synchronously rescanning every vertex, caches a row’s
 normalized preview for later refocusing, cancels obsolete worker jobs when the
 active asset changes, and prepares only the actively previewed item instead of

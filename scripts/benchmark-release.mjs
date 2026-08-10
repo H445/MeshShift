@@ -26,7 +26,7 @@ const collectGarbage = () => {
 const measureCliStartup = () =>
   new Promise((resolveResult, reject) => {
     const started = performance.now();
-    const child = spawn(process.execPath, [resolve(root, 'dist/cli/modelshift.mjs'), '--help'], {
+    const child = spawn(process.execPath, [resolve(root, 'dist/cli/meshshift.mjs'), '--help'], {
       cwd: root,
       stdio: 'ignore',
     });

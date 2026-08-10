@@ -10,7 +10,7 @@ pnpm build
 pnpm release:check
 ```
 
-Set `MODELSHIFT_MAX_FILE_MB` to change the default 200 MB aggregate input
+Set `MESHSHIFT_MAX_FILE_MB` to change the default 200 MB aggregate input
 limit. The legacy `G2F_MAX_FILE_MB` variable is still recognized.
 
 ## Safety limits and local configuration
@@ -18,9 +18,9 @@ limit. The legacy `G2F_MAX_FILE_MB` variable is still recognized.
 The converter applies defensive limits at every public entry point:
 
 - External input bundles default to 200 MB total. Configure the limit with
-  `MODELSHIFT_MAX_FILE_MB`.
+  `MESHSHIFT_MAX_FILE_MB`.
 - Local browser exports default to 1 GB per file. Configure the limit with
-  `MODELSHIFT_MAX_EXPORT_MB`.
+  `MESHSHIFT_MAX_EXPORT_MB`.
 - An input bundle may contain at most 4,096 files, and public optimization
   options are validated before parsing.
 - Companion files must be local, relative resources inside the selected input
@@ -47,5 +47,5 @@ memory and disk budget.
 - Draco and KTX2/Basis inputs are not decoded by the current preprocessing path.
 - USD/USDZ are not exposed because this bundled Assimp build does not provide a
   verified import/export path for them.
-- Direct browser saving requires the local ModelShift dev or preview server; a
+- Direct browser saving requires the local MeshShift dev or preview server; a
   separately hosted static build cannot write to the repository filesystem.

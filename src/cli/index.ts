@@ -19,23 +19,23 @@ import { loadAssetFiles } from './assetFiles.js';
 import { writeZipArchive } from './archive.js';
 import { writeOutputFile } from './outputFiles.js';
 
-declare const __MODELSHIFT_VERSION__: string;
+declare const __MESHSHIFT_VERSION__: string;
 
 const program = new Command();
 const inputList = INPUT_FORMATS.map((format) => `.${format.extension}`).join(', ');
 const outputList = OUTPUT_FORMATS.map((format) => format.id).join(', ');
 
 program
-  .name('modelshift')
+  .name('meshshift')
   .description('Offline conversion between mainstream 3D asset formats.')
-  .version(__MODELSHIFT_VERSION__)
+  .version(__MESHSHIFT_VERSION__)
   .argument('<inputs...>', `One or more files or directories (${inputList})`)
   .option('-f, --format <format>', `Output format: ${outputList}`, 'fbx')
   .option('-o, --output <dir>', 'Output directory (default: same directory as each input)')
   .option('-r, --recursive', 'Recurse into subdirectories', false)
   .option('--parallel <n>', 'Concurrent conversions (default: CPU count - 1, max 8)', Number)
   .option('--json', 'Emit a JSON sidecar per asset with stats', false)
-  .option('--zip', 'Pack successful outputs into modelshift.zip', false)
+  .option('--zip', 'Pack successful outputs into meshshift.zip', false)
   .option('-v, --verbose', 'Verbose per-file progress to stderr', false)
   .option('--max-triangles <n>', 'Triangle cap per mesh; 0 disables decimation', Number, 0)
   .option('--merge-by-material', 'Merge meshes sharing a material', false)

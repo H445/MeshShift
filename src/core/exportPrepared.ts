@@ -133,7 +133,7 @@ async function exportObjScene(scene: Object3D, primaryName: string): Promise<Con
   const materials = sceneMaterials(scene);
   scene.updateMatrixWorld(true);
   const objText = `mtllib ${mtlName}\n${new OBJExporter().parse(scene)}`;
-  const mtl: string[] = ['# ModelShift materials'];
+  const mtl: string[] = ['# MeshShift materials'];
   const textures: ConvertedFile[] = [];
   const textureNames = new Map<Texture, string>();
 
@@ -320,7 +320,7 @@ function exportDaeScene(scene: Object3D, primaryName: string): ConvertedFile[] {
   const document =
     '<?xml version="1.0" encoding="utf-8"?>' +
     '<COLLADA xmlns="http://www.collada.org/2005/11/COLLADASchema" version="1.4.1">' +
-    '<asset><contributor><authoring_tool>ModelShift</authoring_tool></contributor><unit name="meter" meter="1"/><up_axis>Y_UP</up_axis></asset>' +
+    '<asset><contributor><authoring_tool>MeshShift</authoring_tool></contributor><unit name="meter" meter="1"/><up_axis>Y_UP</up_axis></asset>' +
     `<library_effects>${effects}</library_effects><library_materials>${materialLibrary}</library_materials>` +
     `<library_geometries>${geometries}</library_geometries>` +
     `<library_visual_scenes><visual_scene id="Scene" name="Scene">${nodes}</visual_scene></library_visual_scenes>` +

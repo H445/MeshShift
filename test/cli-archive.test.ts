@@ -6,12 +6,12 @@ import { writeZipArchive } from '../src/cli/archive.js';
 
 describe('CLI archive output', () => {
   it('writes an archive atomically', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'modelshift-cli-archive-'));
+    const root = await mkdtemp(join(tmpdir(), 'meshshift-cli-archive-'));
     try {
       const target = await writeZipArchive(root, [
         { path: join(root, 'asset.fbx'), data: new Uint8Array([1, 2, 3]) },
       ]);
-      expect(target).toBe(join(root, 'modelshift.zip'));
+      expect(target).toBe(join(root, 'meshshift.zip'));
       expect((await readFile(target)).byteLength).toBeGreaterThan(0);
     } finally {
       await rm(root, { force: true, recursive: true });
@@ -19,7 +19,7 @@ describe('CLI archive output', () => {
   });
 
   it('does not commit an archive when cancelled during generation', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'modelshift-cli-archive-cancel-'));
+    const root = await mkdtemp(join(tmpdir(), 'meshshift-cli-archive-cancel-'));
     const controller = new AbortController();
     try {
       const pending = writeZipArchive(

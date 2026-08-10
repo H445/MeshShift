@@ -22,5 +22,5 @@ export async function writeZipArchive(
   }
   const buffer = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
   throwIfAborted(signal);
-  return writeOutputFile(resolve(outputRoot), 'modelshift.zip', buffer, signal);
+  return writeOutputFile(resolve(outputRoot), 'meshshift.zip', buffer, signal);
 }

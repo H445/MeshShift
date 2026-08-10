@@ -1,7 +1,7 @@
 # Core TypeScript API
 
 ```ts
-import { convertAsset } from 'modelshift';
+import { convertAsset } from 'meshshift';
 
 const result = await convertAsset(
   [

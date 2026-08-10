@@ -34,7 +34,7 @@ describe('CLI companion path safety', () => {
   });
 
   it('loads only existing local companions and skips remote or malformed references', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'modelshift-assets-'));
+    const root = await mkdtemp(join(tmpdir(), 'meshshift-assets-'));
     try {
       await writeFile(
         join(root, 'scene.gltf'),
@@ -61,7 +61,7 @@ describe('CLI companion path safety', () => {
   });
 
   it('terminates cyclic companion references without duplicate loads', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'modelshift-cyclic-'));
+    const root = await mkdtemp(join(tmpdir(), 'meshshift-cyclic-'));
     try {
       await writeFile(
         join(root, 'a.gltf'),

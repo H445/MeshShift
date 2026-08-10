@@ -14,7 +14,7 @@ if (!archiveArgument) throw new Error('Usage: node scripts/verify-packed-consume
 
 const archivePath = resolve(root, archiveArgument);
 await access(archivePath);
-const consumerRoot = await mkdtemp(join(tmpdir(), 'modelshift-packed-consumer-'));
+const consumerRoot = await mkdtemp(join(tmpdir(), 'meshshift-packed-consumer-'));
 const npmCache = resolve(root, '.cache', 'packed-consumer-npm-cache');
 await mkdir(npmCache, { recursive: true });
 
@@ -45,7 +45,7 @@ if (!npmCli) throw new Error('Could not locate the npm CLI next to the current N
 try {
   await writeFile(
     join(consumerRoot, 'package.json'),
-    `${JSON.stringify({ name: 'modelshift-packed-consumer', private: true }, null, 2)}\n`,
+    `${JSON.stringify({ name: 'meshshift-packed-consumer', private: true }, null, 2)}\n`,
   );
   await run(process.execPath, [
     npmCli,
@@ -61,10 +61,10 @@ try {
   const cliPath = resolve(
     consumerRoot,
     'node_modules',
-    'modelshift',
+    'meshshift',
     'dist',
     'cli',
-    'modelshift.mjs',
+    'meshshift.mjs',
   );
   const fixturePath = resolve(root, 'test/fixtures/cube.glb');
   const outputRoot = resolve(consumerRoot, 'output');
@@ -76,7 +76,7 @@ try {
   const fbxPath = join(outputRoot, 'cube.fbx');
   const stats = JSON.parse(await readFile(statsPath, 'utf8'));
   const fbx = await readFile(fbxPath);
-  if (!/Usage: modelshift/.test(helpOutput) || !/^\d+\.\d+\.\d+$/.test(versionOutput.trim())) {
+  if (!/Usage: meshshift/.test(helpOutput) || !/^\d+\.\d+\.\d+$/.test(versionOutput.trim())) {
     throw new Error('Packed consumer CLI help/version output is invalid.');
   }
   if (!Number.isSafeInteger(stats.triangles) || stats.triangles <= 0 || fbx.byteLength <= 64) {

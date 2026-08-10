@@ -4,25 +4,25 @@ The CLI converts one asset or a directory of assets:
 
 ```bash
 # FBX remains the default output for compatibility
-modelshift model.glb
+meshshift model.glb
 
 # Convert FBX to GLB
-modelshift model.fbx --format glb
+meshshift model.fbx --format glb
 
 # Convert OBJ + referenced MTL/textures to FBX
-modelshift model.obj --format fbx
+meshshift model.obj --format fbx
 
 # Recursively convert a directory to PLY
-modelshift ./models --recursive --format ply --output ./converted
+meshshift ./models --recursive --format ply --output ./converted
 
 # Package all successful output files
-modelshift ./models --recursive --format gltf --output ./converted --zip
+meshshift ./models --recursive --format gltf --output ./converted --zip
 ```
 
 Run the local bundle with:
 
 ```bash
-node dist/cli/modelshift.mjs model.obj --format glb
+node dist/cli/meshshift.mjs model.obj --format glb
 ```
 
 Important options:
@@ -32,7 +32,7 @@ Important options:
 -o, --output <dir>      Output directory
 -r, --recursive         Recurse into input directories
 --parallel <n>          1–8 concurrent conversions
--V, --version           Print the installed ModelShift version
+-V, --version           Print the installed MeshShift version
 --json                  Write conversion statistics
 --zip                   Package successful outputs
 --max-triangles <n>     Mesh triangle cap

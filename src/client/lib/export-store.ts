@@ -1,6 +1,6 @@
 import type { ConvertResult, ConvertedFile } from '../../shared/options.js';
 
-const EXPORT_API_PATH = '/__modelshift/exports';
+const EXPORT_API_PATH = '/__meshshift/exports';
 
 export interface SavedExport {
   bytes: number;
@@ -61,7 +61,7 @@ async function saveFile({ file, path }: PendingExport): Promise<SavedExport> {
     });
   } catch {
     throw new Error(
-      'The local export service is unavailable. Start ModelShift with start.sh or start.ps1.',
+      'The local export service is unavailable. Start MeshShift with start.sh or start.ps1.',
     );
   }
 
@@ -73,7 +73,7 @@ async function saveFile({ file, path }: PendingExport): Promise<SavedExport> {
   if (!response.ok || typeof payload?.path !== 'string') {
     throw new Error(
       payload?.error ??
-        'The local export service is unavailable. Start ModelShift with start.sh or start.ps1.',
+        'The local export service is unavailable. Start MeshShift with start.sh or start.ps1.',
     );
   }
   return {

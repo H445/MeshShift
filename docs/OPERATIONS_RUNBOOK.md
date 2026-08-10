@@ -1,6 +1,6 @@
 # Operations and Release Runbook
 
-ModelShift is primarily a local/offline product. Operations therefore focus on
+MeshShift is primarily a local/offline product. Operations therefore focus on
 release integrity, support diagnostics, safe filesystem behavior, and customer
 recovery rather than a hosted conversion service.
 
@@ -59,7 +59,7 @@ named individual or team and include the approval timestamp.
 
 Support may request the following minimum diagnostic bundle:
 
-- ModelShift version, release commit, operating system, architecture, Node.js
+- MeshShift version, release commit, operating system, architecture, Node.js
   version, and the exact CLI/API output format.
 - Sanitized command-line flags or browser option values, excluding local paths
   that identify a customer or workspace.

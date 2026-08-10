@@ -1,4 +1,4 @@
-# ModelShift Threat Model
+# MeshShift Threat Model
 
 ## Trust boundaries
 

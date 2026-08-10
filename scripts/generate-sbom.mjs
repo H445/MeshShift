@@ -8,8 +8,8 @@ import { fileURLToPath } from 'node:url';
 
 const execFileAsync = promisify(execFile);
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
-const configuredPnpm = process.env.MODELSHIFT_PNPM;
-const configuredScript = process.env.MODELSHIFT_PNPM_SCRIPT;
+const configuredPnpm = process.env.MESHSHIFT_PNPM;
+const configuredScript = process.env.MESHSHIFT_PNPM_SCRIPT;
 const pnpm =
   configuredPnpm ??
   (process.platform === 'win32'

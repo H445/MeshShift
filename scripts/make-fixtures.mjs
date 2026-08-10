@@ -99,7 +99,7 @@ async function makeSkinnedCube() {
 
   // Build a minimal glTF 2.0 JSON with skin
   const gltf = {
-    asset: { version: '2.0', generator: 'ModelShift test fixture' },
+    asset: { version: '2.0', generator: 'MeshShift test fixture' },
     scene: 0,
     scenes: [{ nodes: [0] }],
     nodes: [

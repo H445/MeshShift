@@ -6,12 +6,12 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
-const cliPath = resolve(root, 'dist/cli/modelshift.mjs');
+const cliPath = resolve(root, 'dist/cli/meshshift.mjs');
 const inputPath = resolve(root, 'test/fixtures/potion.glb');
 await access(cliPath);
 await access(inputPath);
 
-const outputRoot = await mkdtemp(join(tmpdir(), 'modelshift-interruption-'));
+const outputRoot = await mkdtemp(join(tmpdir(), 'meshshift-interruption-'));
 try {
   const child = spawn(
     process.execPath,

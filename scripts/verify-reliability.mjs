@@ -7,7 +7,7 @@ const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const budget = JSON.parse(await readFile(resolve(root, 'docs/reliability-budgets.json'), 'utf8'));
 const reportPath = resolve(
   root,
-  process.env.MODELSHIFT_RELIABILITY_REPORT ?? 'artifacts/reliability-baseline.json',
+  process.env.MESHSHIFT_RELIABILITY_REPORT ?? 'artifacts/reliability-baseline.json',
 );
 const report = JSON.parse(await readFile(reportPath, 'utf8'));
 const failures = [];

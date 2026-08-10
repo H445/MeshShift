@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to ModelShift are documented here. The project follows
+All notable changes to MeshShift are documented here. The project follows
 Semantic Versioning for the public package and CLI.
 
 ## [0.2.0] - Release candidate

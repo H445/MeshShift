@@ -1,6 +1,6 @@
 # Third-party notices
 
-ModelShift redistributes an Assimp WebAssembly runtime as:
+MeshShift redistributes an Assimp WebAssembly runtime as:
 
 - `src/client/public/assimpjs.js`
 - `src/client/public/assimpjs.wasm`

@@ -1,4 +1,4 @@
-# ModelShift Release Approval Record
+# MeshShift Release Approval Record
 
 Copy this file into the release evidence bundle and complete it for the exact
 candidate being shipped. An empty field is an open gate, not an approval.
@@ -7,7 +7,7 @@ candidate being shipped. An empty field is an open gate, not an approval.
 
 | Field | Value |
 | --- | --- |
-| Package name/version | `modelshift@0.2.0` |
+| Package name/version | `meshshift@0.2.0` |
 | Release commit | |
 | Branch/tag | |
 | Node and pnpm versions | |

@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const reportPath = resolve(
   root,
-  process.env.MODELSHIFT_BENCHMARK_REPORT ?? 'artifacts/benchmark-baseline.json',
+  process.env.MESHSHIFT_BENCHMARK_REPORT ?? 'artifacts/benchmark-baseline.json',
 );
 const budgets = JSON.parse(await readFile(resolve(root, 'docs/performance-budgets.json'), 'utf8'));
 const report = JSON.parse(await readFile(reportPath, 'utf8'));

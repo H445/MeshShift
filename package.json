@@ -1,5 +1,5 @@
 {
-  "name": "modelshift",
+  "name": "meshshift",
   "version": "0.2.0",
   "description": "Offline conversion between mainstream 3D asset formats. CLI + static web UI, no server.",
   "license": "MIT",
@@ -15,7 +15,7 @@
     "./package.json": "./package.json"
   },
   "bin": {
-    "modelshift": "dist/cli/modelshift.mjs"
+    "meshshift": "dist/cli/meshshift.mjs"
   },
   "files": [
     "dist",
@@ -93,12 +93,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/H445/ModelShift.git"
+    "url": "git+https://github.com/H445/MeshShift.git"
   },
   "keywords": [],
   "author": "",
   "bugs": {
-    "url": "https://github.com/H445/ModelShift/issues"
+    "url": "https://github.com/H445/MeshShift/issues"
   },
-  "homepage": "https://github.com/H445/ModelShift#readme"
+  "homepage": "https://github.com/H445/MeshShift#readme"
 }

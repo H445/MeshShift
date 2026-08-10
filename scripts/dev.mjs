@@ -14,12 +14,12 @@ const viteCli = resolve(root, 'node_modules', 'vite', 'bin', 'vite.js');
 const nodeMajor = Number.parseInt(process.versions.node.split('.')[0] ?? '0', 10);
 
 if (nodeMajor < 20) {
-  console.error(`ModelShift requires Node.js 20 or newer (found ${process.versions.node}).`);
+  console.error(`MeshShift requires Node.js 20 or newer (found ${process.versions.node}).`);
   process.exit(1);
 }
 
 if (!existsSync(viteCli)) {
-  console.error('ModelShift dependencies are not installed. Run "pnpm install" first.');
+  console.error('MeshShift dependencies are not installed. Run "pnpm install" first.');
   process.exit(1);
 }
 

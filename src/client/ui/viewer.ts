@@ -159,13 +159,13 @@ export function createViewer(canvas: HTMLCanvasElement): ViewerHandle {
     const size = contentBounds.getSize(new THREE.Vector3());
     const markerRadius = Math.max(1e-5, Math.max(size.x, size.y, size.z) * 0.012);
     const markers = new THREE.Group();
-    markers.name = 'ModelShift detail pins';
+    markers.name = 'MeshShift detail pins';
     markers.userData.__detailPinMarker = true;
 
     for (const pin of detailPins) {
       const candidateMeshes: THREE.Mesh[] = [];
       root.traverse((object) => {
-        if ((object as THREE.Mesh).isMesh && object.userData.modelShiftMeshKey === pin.meshKey) {
+        if ((object as THREE.Mesh).isMesh && object.userData.meshShiftMeshKey === pin.meshKey) {
           candidateMeshes.push(object as THREE.Mesh);
         }
       });
@@ -223,7 +223,7 @@ export function createViewer(canvas: HTMLCanvasElement): ViewerHandle {
           (intersection.object as THREE.Mesh).isMesh &&
           intersection.object.visible &&
           !intersection.object.userData.__detailPinMarker &&
-          typeof intersection.object.userData.modelShiftMeshKey === 'string',
+          typeof intersection.object.userData.meshShiftMeshKey === 'string',
       );
   }
 
@@ -272,7 +272,7 @@ export function createViewer(canvas: HTMLCanvasElement): ViewerHandle {
     }
     const lodMatch = /_LOD(\d+)$/i.exec(mesh.name);
     const pick: DetailPinPick = {
-      meshKey: mesh.userData.modelShiftMeshKey as string,
+      meshKey: mesh.userData.meshShiftMeshKey as string,
       meshName: mesh.name.replace(/_LOD\d+$/i, '') || 'mesh',
       lodLevel: lodMatch ? Number(lodMatch[1]) : 0,
       position: [

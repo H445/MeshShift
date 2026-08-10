@@ -7,9 +7,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const exportRoot = resolve(__dirname, 'exports');
 const browserAssimpLoader = resolve(__dirname, 'src/client/lib/assimpLoader.browser.ts');
 
-function modelShiftExportPlugin(): Plugin {
+function meshShiftExportPlugin(): Plugin {
   return {
-    name: 'modelshift-export-store',
+    name: 'meshshift-export-store',
     configureServer(server) {
       server.middlewares.use(createExportMiddleware(exportRoot));
     },
@@ -31,7 +31,7 @@ function watlasBrowserPlugin(): Plugin {
     /if\(ENVIRONMENT_IS_NODE\)\{const\{createRequire\}=await import\("module"\);var require=createRequire\(import\.meta\.url\)\}/;
 
   return {
-    name: 'modelshift-watlas-browser',
+    name: 'meshshift-watlas-browser',
     enforce: 'pre',
     transform(code, id) {
       const cleanId = normalizePath(id.split('?')[0]);
@@ -51,7 +51,7 @@ function watlasBrowserPlugin(): Plugin {
 
 export default defineConfig({
   base: './',
-  plugins: [watlasBrowserPlugin(), modelShiftExportPlugin()],
+  plugins: [watlasBrowserPlugin(), meshShiftExportPlugin()],
   root: resolve(__dirname, 'src/client'),
   publicDir: resolve(__dirname, 'src/client/public'),
   resolve: {

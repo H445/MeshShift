@@ -1,6 +1,6 @@
 # Format and Feature Matrix
 
-This matrix records the supported disposition for ModelShift 0.2.x. “Verified”
+This matrix records the supported disposition for MeshShift 0.2.x. “Verified”
 means covered by an automated fixture, structural invariant, or round-trip test;
 “Partial” means the feature is retained when the underlying Assimp path supports
 it and a warning or documented limitation applies; “N/A” means the destination

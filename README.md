@@ -1,19 +1,19 @@
-# ModelShift
+# MeshShift
 
-ModelShift is an offline 3D asset conversion and optimization toolkit with a
+MeshShift is an offline 3D asset conversion and optimization toolkit with a
 local web UI, a Node.js CLI, and a reusable TypeScript API. It began as an
 effort to add asset-processing capabilities to [Modly](https://modly3d.app/),
 but grew into a standalone tool for converting assets between multiple 3D
 formats and preparing them for real-time use.
 
-Alongside format conversion, ModelShift can generate progressively lower-detail
+Alongside format conversion, MeshShift can generate progressively lower-detail
 (LOD) meshes, reproject source textures onto newly generated UV layouts, and
 preserve artist-selected vertex pins as detail is reduced through deeper LOD
 levels. Conversion and optimization happen locally through the bundled Assimp
 WebAssembly runtime and browser-side processing; no model is uploaded to a
 remote service.
 
-![Wireframe potion at deep LOD2](docs/images/modelshift-hero-wireframe-lod2.png)
+![Wireframe potion at deep LOD2](docs/images/meshshift-hero-wireframe-lod2.png)
 
 ## Formats
 
@@ -39,6 +39,6 @@ referenced textures alongside the primary file.
 
 ## License
 
-ModelShift is MIT licensed. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
+MeshShift is MIT licensed. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
 for the licenses and exact checksums of the redistributed Assimp WebAssembly
 runtime.

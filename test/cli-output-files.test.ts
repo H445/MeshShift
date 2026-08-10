@@ -19,7 +19,7 @@ describe('CLI output path safety', () => {
   });
 
   it('writes and atomically replaces nested output files', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'modelshift-cli-output-'));
+    const root = await mkdtemp(join(tmpdir(), 'meshshift-cli-output-'));
     try {
       const target = await writeOutputFile(root, 'nested/model.fbx', new Uint8Array([1, 2]));
       expect([...new Uint8Array(await readFile(target))]).toEqual([1, 2]);
@@ -31,7 +31,7 @@ describe('CLI output path safety', () => {
   });
 
   it('fails cleanly when the configured output root is a regular file', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'modelshift-cli-output-root-'));
+    const root = await mkdtemp(join(tmpdir(), 'meshshift-cli-output-root-'));
     const outputRoot = join(root, 'not-a-directory');
     try {
       await writeFile(outputRoot, 'keep this marker');
@@ -43,7 +43,7 @@ describe('CLI output path safety', () => {
   });
 
   it('does not commit or leave a temporary file when cancelled before writing', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'modelshift-cli-output-cancel-'));
+    const root = await mkdtemp(join(tmpdir(), 'meshshift-cli-output-cancel-'));
     const controller = new AbortController();
     controller.abort('write cancelled');
     try {

@@ -1,6 +1,6 @@
 # Quick start
 
-ModelShift requires Node.js 20 or newer and pnpm 10.30.1. Install pnpm
+MeshShift requires Node.js 20 or newer and pnpm 10.30.1. Install pnpm
 globally if it is not already available:
 
 ```bash
@@ -13,7 +13,7 @@ Install dependencies once:
 pnpm install
 ```
 
-Launch ModelShift from the repository root.
+Launch MeshShift from the repository root.
 
 Linux/macOS:
 
@@ -48,7 +48,7 @@ pnpm build
 ```
 
 The reusable Node API is written to `dist/core/`, the CLI bundle is
-`dist/cli/modelshift.mjs`, and the production web app is written to
+`dist/cli/meshshift.mjs`, and the production web app is written to
 `dist/client/`. Use `pnpm preview` when testing the production build locally
 so the `exports/` writer remains available.
 

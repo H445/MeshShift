@@ -47,7 +47,7 @@ function makeRichGltf(): Uint8Array {
     },
   ];
   const document = {
-    asset: { version: '2.0', generator: 'ModelShift fidelity fixture' },
+    asset: { version: '2.0', generator: 'MeshShift fidelity fixture' },
     extensionsUsed: ['KHR_lights_punctual'],
     extensions: {
       KHR_lights_punctual: {

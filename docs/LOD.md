@@ -4,7 +4,7 @@ LOD generation is a geometry-first pipeline. It favors a safe plateau over
 hitting a triangle target with holes, folded faces, broken UV islands, or a
 visibly damaged outline.
 
-1. **Prepare the source.** ModelShift normalizes the mesh to indexed geometry
+1. **Prepare the source.** MeshShift normalizes the mesh to indexed geometry
    and keeps the high-detail source available for feature checks and optional
    texture projection. Each requested LOD is generated independently from
    LOD0, not from the previous LOD, so errors do not compound down the chain.
@@ -18,7 +18,7 @@ visibly damaged outline.
    surviving normals and colors, lock severe UV discontinuities, and protect
    atlas borders.
 4. **Repair topology.** If aggressive reduction makes an edge belong to more
-   than two faces, ModelShift duplicates the vertices of the exceptional faces.
+   than two faces, MeshShift duplicates the vertices of the exceptional faces.
    This keeps every triangle visible while removing the non-manifold edge
    instead of dropping a face and creating a crack or hole.
 5. **Audit critical shape features.** The reduced surface is compared with the
@@ -33,7 +33,7 @@ visibly damaged outline.
    maintain acceptable triangle quality, and avoid projected-area explosions.
 8. **Accept or safely plateau.** A level is accepted only when it is smaller
    than the preceding level and passes the safety checks. If no safe reduction
-   is available, ModelShift clones the last safe geometry and reports a
+   is available, MeshShift clones the last safe geometry and reports a
    `safe plateau`; it does not substitute a destructive fallback.
 9. **Rebuild UVs and bake textures when available.** Textured LODs receive a
    new non-overlapping xatlas/watlas UV atlas. Every atlas pixel is projected

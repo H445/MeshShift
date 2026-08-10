@@ -1,6 +1,6 @@
-# ModelShift Release Contract
+# MeshShift Release Contract
 
-This is the compatibility and acceptance contract for ModelShift 0.2.x. A
+This is the compatibility and acceptance contract for MeshShift 0.2.x. A
 release is supported only for the surfaces and limits declared here. Features
 outside the contract may still work, but are not enterprise support promises.
 
@@ -44,8 +44,8 @@ The authoritative feature disposition is [FORMAT_FEATURE_MATRIX.md](FORMAT_FEATU
 
 | Limit                          |                     Default or maximum | Configuration                      |
 | ------------------------------ | -------------------------------------: | ---------------------------------- |
-| Aggregate external input bytes |                        200 MiB default | `MODELSHIFT_MAX_FILE_MB`           |
-| Browser export file bytes      |                          1 GiB default | `MODELSHIFT_MAX_EXPORT_MB`         |
+| Aggregate external input bytes |                        200 MiB default | `MESHSHIFT_MAX_FILE_MB`           |
+| Browser export file bytes      |                          1 GiB default | `MESHSHIFT_MAX_EXPORT_MB`         |
 | Input bundle file count        |                          4,096 maximum | Not configurable                   |
 | Generated LOD levels           |                              8 maximum | `generateLODs` / `--generate-lods` |
 | Explicit LOD targets           |                              8 maximum | `lodTriangleTargets`               |
@@ -60,10 +60,10 @@ model at the limit will fit a particular machine's available memory.
 
 ## Public interface contract
 
-- The package name is `modelshift`, with the Node engine requirement `>=20`.
+- The package name is `meshshift`, with the Node engine requirement `>=20`.
 - The public package export is the reusable core API. `convertGltfToFbx` remains
   a compatibility wrapper and defaults to FBX.
-- The CLI executable is `modelshift`.
+- The CLI executable is `meshshift`.
 - Exit code `0` means all requested conversions succeeded; `1` means invalid or
   missing input; `2` means every conversion failed; `4` means partial success.
 - Core conversion and optimization APIs accept an optional `AbortSignal`. The
@@ -80,7 +80,7 @@ model at the limit will fit a particular machine's available memory.
 
 ## Privacy, network, and data handling
 
-Conversion is local. ModelShift does not upload model data, require a remote
+Conversion is local. MeshShift does not upload model data, require a remote
 conversion service, or emit telemetry by default. The browser export endpoint
 is a project-scoped local writer and must not be exposed as an internet-facing
 upload service without a separate authentication and deployment review.

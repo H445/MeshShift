@@ -4,8 +4,8 @@
  */
 import { type ConvertOptions, type OutputFormat } from '../../shared/options.js';
 
-const SETTINGS_STORAGE_KEY = 'modelshift.settings.v1';
-const PREVIOUS_STORAGE_KEY = 'modelshift-3d.settings.v1';
+const SETTINGS_STORAGE_KEY = 'meshshift.settings.v1';
+const PREVIOUS_STORAGE_KEY = 'meshshift-3d.settings.v1';
 const LEGACY_STORAGE_KEY = 'gltf-to-fbx.settings.v1';
 const OUTPUT_FORMATS = ['fbx', 'glb', 'gltf', 'obj', 'stl', 'ply', 'dae'] as const;
 

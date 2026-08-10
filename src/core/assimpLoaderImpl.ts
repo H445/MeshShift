@@ -31,7 +31,7 @@ async function loadInNode(): Promise<AssimpInstance> {
     const thisDir = dirname(fileURLToPath(import.meta.url));
     const cwd = process.cwd();
     const candidates = [
-      process.env.MODELSHIFT_ASSIMP_DIR,
+      process.env.MESHSHIFT_ASSIMP_DIR,
       join(thisDir, '..', 'vendor'),
       thisDir,
       join(cwd, 'src', 'client', 'public'),
@@ -57,7 +57,7 @@ async function loadInNode(): Promise<AssimpInstance> {
     }
     throw new Error(
       `assimpjs vendor files not found. Looked in:\n  ${candidates.join('\n  ')}\n` +
-        'Set MODELSHIFT_ASSIMP_DIR to the directory containing assimpjs.js and assimpjs.wasm.',
+        'Set MESHSHIFT_ASSIMP_DIR to the directory containing assimpjs.js and assimpjs.wasm.',
     );
   }
 

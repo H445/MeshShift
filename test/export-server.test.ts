@@ -14,7 +14,7 @@ import {
 const temporaryRoots: string[] = [];
 
 async function temporaryRoot(): Promise<string> {
-  const root = await mkdtemp(join(tmpdir(), 'modelshift-exports-'));
+  const root = await mkdtemp(join(tmpdir(), 'meshshift-exports-'));
   temporaryRoots.push(root);
   return root;
 }
@@ -27,13 +27,13 @@ afterEach(async () => {
 
 describe('local export store', () => {
   it('uses the default export limit for invalid environment values', () => {
-    const previous = process.env.MODELSHIFT_MAX_EXPORT_MB;
-    process.env.MODELSHIFT_MAX_EXPORT_MB = 'not-a-number';
+    const previous = process.env.MESHSHIFT_MAX_EXPORT_MB;
+    process.env.MESHSHIFT_MAX_EXPORT_MB = 'not-a-number';
     try {
       expect(getMaxExportBytes()).toBe(1024 * 1024 * 1024);
     } finally {
-      if (previous === undefined) delete process.env.MODELSHIFT_MAX_EXPORT_MB;
-      else process.env.MODELSHIFT_MAX_EXPORT_MB = previous;
+      if (previous === undefined) delete process.env.MESHSHIFT_MAX_EXPORT_MB;
+      else process.env.MESHSHIFT_MAX_EXPORT_MB = previous;
     }
   });
 
@@ -126,7 +126,7 @@ describe('local export store', () => {
       const address = server.address();
       if (!address || typeof address === 'string') throw new Error('Test server has no TCP port.');
       const response = await fetch(
-        `http://127.0.0.1:${address.port}/__modelshift/exports?path=${encodeURIComponent('asset/model.fbx')}`,
+        `http://127.0.0.1:${address.port}/__meshshift/exports?path=${encodeURIComponent('asset/model.fbx')}`,
         {
           method: 'PUT',
           body: new Uint8Array([7, 8, 9]),
@@ -149,8 +149,8 @@ describe('local export store', () => {
 
   it('rejects a known oversized request before writing it', async () => {
     const root = await temporaryRoot();
-    const previous = process.env.MODELSHIFT_MAX_EXPORT_MB;
-    process.env.MODELSHIFT_MAX_EXPORT_MB = '0';
+    const previous = process.env.MESHSHIFT_MAX_EXPORT_MB;
+    process.env.MESHSHIFT_MAX_EXPORT_MB = '0';
     const middleware = createExportMiddleware(root);
     const server = createServer((request, response) => {
       void middleware(request, response, () => {
@@ -167,7 +167,7 @@ describe('local export store', () => {
       const address = server.address();
       if (!address || typeof address === 'string') throw new Error('Test server has no TCP port.');
       const response = await fetch(
-        `http://127.0.0.1:${address.port}/__modelshift/exports?path=${encodeURIComponent('too-large.fbx')}`,
+        `http://127.0.0.1:${address.port}/__meshshift/exports?path=${encodeURIComponent('too-large.fbx')}`,
         {
           method: 'PUT',
           headers: { 'Content-Length': '1' },
@@ -177,8 +177,8 @@ describe('local export store', () => {
       expect(response.status).toBe(413);
       await expect(readFile(join(root, 'too-large.fbx'))).rejects.toMatchObject({ code: 'ENOENT' });
     } finally {
-      if (previous === undefined) delete process.env.MODELSHIFT_MAX_EXPORT_MB;
-      else process.env.MODELSHIFT_MAX_EXPORT_MB = previous;
+      if (previous === undefined) delete process.env.MESHSHIFT_MAX_EXPORT_MB;
+      else process.env.MESHSHIFT_MAX_EXPORT_MB = previous;
       await new Promise<void>((resolve, reject) =>
         server.close((error) => (error ? reject(error) : resolve())),
       );

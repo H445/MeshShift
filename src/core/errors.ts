@@ -1,29 +1,29 @@
 /**
  * Typed error classes for the converter.
  * All conversion errors share this base class. The legacy name remains
- * exported so existing consumers do not break after the ModelShift rename.
+ * exported so existing consumers do not break after the MeshShift rename.
  */
 
-export class ModelShiftError extends Error {
+export class MeshShiftError extends Error {
   override readonly name: string;
   readonly phase?: string;
-  constructor(message: string, name = 'ModelShiftError', phase?: string) {
+  constructor(message: string, name = 'MeshShiftError', phase?: string) {
     super(message);
     this.name = name;
     this.phase = phase;
   }
 }
 
-/** @deprecated Use ModelShiftError. */
-export { ModelShiftError as GltfToFbxError };
+/** @deprecated Use MeshShiftError. */
+export { MeshShiftError as GltfToFbxError };
 
-export class ParseError extends ModelShiftError {
+export class ParseError extends MeshShiftError {
   constructor(message: string) {
     super(message, 'ParseError', 'parse');
   }
 }
 
-export class UnsupportedExtensionError extends ModelShiftError {
+export class UnsupportedExtensionError extends MeshShiftError {
   readonly extension: string;
   constructor(extension: string) {
     super(
@@ -35,19 +35,19 @@ export class UnsupportedExtensionError extends ModelShiftError {
   }
 }
 
-export class ExportError extends ModelShiftError {
+export class ExportError extends MeshShiftError {
   constructor(message: string) {
     super(message, 'ExportError', 'export');
   }
 }
 
-export class PostProcessError extends ModelShiftError {
+export class PostProcessError extends MeshShiftError {
   constructor(message: string) {
     super(message, 'PostProcessError', 'post');
   }
 }
 
-export class InputTooLargeError extends ModelShiftError {
+export class InputTooLargeError extends MeshShiftError {
   readonly sizeBytes: number;
   readonly maxBytes: number;
   constructor(sizeBytes: number, maxBytes: number) {
