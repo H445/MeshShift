@@ -1,6 +1,6 @@
 # MeshShift
 
-![MeshShift logo](docs/images/meshshift-logo.png)
+![MeshShift banner](docs/images/meshshift-banner-universal.png)
 
 MeshShift is an offline 3D asset conversion and optimization toolkit with a
 local web UI, a Node.js CLI, and a reusable TypeScript API. It began as an
