@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 360" role="img" aria-labelledby="title desc">
+  <title id="title">MeshShift icon</title>
+  <desc id="desc">A compact isometric mesh cube with highlighted front vertices.</desc>
+  <defs>
+    <linearGradient id="top-face" x1="50" y1="30" x2="310" y2="180" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0a123d" stop-opacity="0.9" />
+      <stop offset="0.6" stop-color="#1667b8" stop-opacity="0.62" />
+      <stop offset="1" stop-color="#32e8f5" stop-opacity="0.5" />
+    </linearGradient>
+    <linearGradient id="left-face" x1="50" y1="105" x2="180" y2="295" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0a123d" stop-opacity="0.94" />
+      <stop offset="1" stop-color="#1f9fd5" stop-opacity="0.48" />
+    </linearGradient>
+    <linearGradient id="right-face" x1="180" y1="180" x2="310" y2="295" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#19dce9" stop-opacity="0.52" />
+      <stop offset="0.55" stop-color="#416de0" stop-opacity="0.58" />
+      <stop offset="1" stop-color="#8d3ff5" stop-opacity="0.72" />
+    </linearGradient>
+    <linearGradient id="top-edge" x1="50" y1="105" x2="310" y2="105" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#14205d" />
+      <stop offset="0.52" stop-color="#2fcbef" />
+      <stop offset="1" stop-color="#60f8ff" />
+    </linearGradient>
+    <linearGradient id="right-edge" x1="180" y1="180" x2="310" y2="295" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#38e9f4" />
+      <stop offset="0.5" stop-color="#5668df" />
+      <stop offset="1" stop-color="#a452ff" />
+    </linearGradient>
+    <linearGradient id="front-edge" x1="180" y1="180" x2="180" y2="295" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#4ff0fa" />
+      <stop offset="1" stop-color="#e5feff" />
+    </linearGradient>
+    <linearGradient id="back-point" x1="50" y1="30" x2="310" y2="220" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#080e31" />
+      <stop offset="1" stop-color="#21346f" />
+    </linearGradient>
+    <linearGradient id="front-point" x1="180" y1="180" x2="180" y2="295" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#4ceef9" />
+      <stop offset="0.7" stop-color="#a6faff" />
+      <stop offset="1" stop-color="#ffffff" />
+    </linearGradient>
+    <linearGradient id="back-violet" x1="310" y1="180" x2="310" y2="230" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2e1b78" />
+      <stop offset="1" stop-color="#5d2eb0" />
+    </linearGradient>
+  </defs>
+
+  <!-- Exact isometric projection with equal-length 30-degree diagonal axes. -->
+  <g stroke-linejoin="round" stroke-linecap="round">
+    <path d="M180 30L310 105.0555L180 180.1111L50 105.0555Z" fill="url(#top-face)" />
+    <path d="M50 105.0555L180 180.1111L180 295.1111L50 220.0555Z" fill="url(#left-face)" />
+    <path d="M180 180.1111L310 105.0555L310 220.0555L180 295.1111Z" fill="url(#right-face)" />
+    <g fill="none" stroke="#69eaf8" stroke-opacity="0.76" stroke-width="5">
+      <path d="M180 105.0555L180 30M180 105.0555L310 105.0555M180 105.0555L180 180.1111M180 105.0555L50 105.0555" />
+    </g>
+    <g fill="none" stroke="#52a8e8" stroke-opacity="0.7" stroke-width="5">
+      <path d="M115 202.5833L50 105.0555M115 202.5833L180 180.1111M115 202.5833L180 295.1111M115 202.5833L50 220.0555" />
+    </g>
+    <g fill="none" stroke="#a0d8ff" stroke-opacity="0.78" stroke-width="5">
+      <path d="M245 202.5833L180 180.1111M245 202.5833L310 105.0555M245 202.5833L310 220.0555M245 202.5833L180 295.1111" />
+    </g>
+    <path d="M180 30L50 105.0555L50 220.0555L180 295.1111" fill="none" stroke="#101a51" stroke-width="12" />
+    <path d="M180 30L310 105.0555L310 220.0555L180 295.1111" fill="none" stroke="url(#right-edge)" stroke-width="12" />
+    <path d="M50 105.0555L180 180.1111L310 105.0555" fill="none" stroke="url(#top-edge)" stroke-width="12" />
+    <path d="M180 180.1111V295.1111" fill="none" stroke="url(#front-edge)" stroke-width="12" />
+  </g>
+
+  <g fill="url(#back-point)" stroke="#5877c9" stroke-width="4">
+    <circle cx="180" cy="30" r="15" />
+    <circle cx="310" cy="105.0555" r="15" />
+    <circle cx="50" cy="105.0555" r="15" />
+    <circle cx="50" cy="220.0555" r="15" />
+  </g>
+  <circle cx="310" cy="220.0555" r="15" fill="url(#back-violet)" stroke="#8c70ed" stroke-width="4" />
+  <g fill="url(#front-point)" stroke="#ffffff" stroke-width="4">
+    <circle cx="180" cy="180.1111" r="17" />
+    <circle cx="180" cy="295.1111" r="17" />
+  </g>
+  <g fill="#50eaf7" stroke="#d9feff" stroke-width="3">
+    <circle cx="180" cy="105.0555" r="10" />
+    <circle cx="115" cy="202.5833" r="10" />
+    <circle cx="245" cy="202.5833" r="10" />
+  </g>
+  <g fill="#ffffff" stroke="none">
+    <circle cx="180" cy="180.1111" r="5" />
+    <circle cx="180" cy="295.1111" r="5" />
+  </g>
+</svg>

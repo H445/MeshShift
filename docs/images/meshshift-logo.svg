@@ -1,0 +1,103 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 430" role="img" aria-labelledby="title desc">
+  <title id="title">MeshShift</title>
+  <desc id="desc">A polished isometric mesh cube with highlighted vertices beside the MeshShift wordmark.</desc>
+  <defs>
+    <linearGradient id="top-face" x1="40" y1="60" x2="320" y2="220" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0a123d" stop-opacity="0.84" />
+      <stop offset="0.58" stop-color="#1667b8" stop-opacity="0.6" />
+      <stop offset="1" stop-color="#32e8f5" stop-opacity="0.46" />
+    </linearGradient>
+    <linearGradient id="left-face" x1="40" y1="140" x2="180" y2="370" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0a123d" stop-opacity="0.92" />
+      <stop offset="0.62" stop-color="#123b86" stop-opacity="0.76" />
+      <stop offset="1" stop-color="#1f9fd5" stop-opacity="0.48" />
+    </linearGradient>
+    <linearGradient id="right-face" x1="180" y1="220" x2="320" y2="370" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#19dce9" stop-opacity="0.48" />
+      <stop offset="0.52" stop-color="#416de0" stop-opacity="0.54" />
+      <stop offset="1" stop-color="#8d3ff5" stop-opacity="0.7" />
+    </linearGradient>
+    <linearGradient id="top-edge" x1="40" y1="140" x2="320" y2="140" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#14205d" />
+      <stop offset="0.52" stop-color="#2fcbef" />
+      <stop offset="1" stop-color="#60f8ff" />
+    </linearGradient>
+    <linearGradient id="right-edge" x1="180" y1="220" x2="320" y2="370" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#38e9f4" />
+      <stop offset="0.5" stop-color="#5668df" />
+      <stop offset="1" stop-color="#a452ff" />
+    </linearGradient>
+    <linearGradient id="front-edge" x1="180" y1="220" x2="180" y2="370" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#4ff0fa" />
+      <stop offset="1" stop-color="#e5feff" />
+    </linearGradient>
+    <linearGradient id="back-point" x1="40" y1="60" x2="320" y2="300" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#080e31" />
+      <stop offset="1" stop-color="#21346f" />
+    </linearGradient>
+    <linearGradient id="front-point" x1="180" y1="220" x2="180" y2="370" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#4ceef9" />
+      <stop offset="0.7" stop-color="#a6faff" />
+      <stop offset="1" stop-color="#ffffff" />
+    </linearGradient>
+    <linearGradient id="back-violet" x1="320" y1="220" x2="320" y2="300" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2e1b78" />
+      <stop offset="1" stop-color="#5d2eb0" />
+    </linearGradient>
+    <linearGradient id="wordmark" x1="390" y1="150" x2="930" y2="270" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0b1238" />
+      <stop offset="1" stop-color="#273d82" />
+    </linearGradient>
+  </defs>
+
+  <!-- Exact isometric projection: both diagonal axes are equal length at 30 degrees. -->
+  <g stroke-linejoin="round" stroke-linecap="round">
+    <!-- restrained face fills make the cube read as a solid box -->
+    <path d="M180 60L320 140.0555L180 220.1111L40 140.0555Z" fill="url(#top-face)" />
+    <path d="M40 140.0555L180 220.1111L180 370.1111L40 290.0555Z" fill="url(#left-face)" />
+    <path d="M180 220.1111L320 140.0555L320 290.0555L180 370.1111Z" fill="url(#right-face)" />
+
+    <!-- correct triangle fans, one shared center per visible face -->
+    <g fill="none" stroke="#69eaf8" stroke-opacity="0.72" stroke-width="4">
+      <path d="M180 140.0555L180 60M180 140.0555L320 140.0555M180 140.0555L180 220.1111M180 140.0555L40 140.0555" />
+    </g>
+    <g fill="none" stroke="#52a8e8" stroke-opacity="0.64" stroke-width="4">
+      <path d="M110 255.0833L40 140.0555M110 255.0833L180 220.1111M110 255.0833L180 370.1111M110 255.0833L40 290.0555" />
+    </g>
+    <g fill="none" stroke="#a0d8ff" stroke-opacity="0.72" stroke-width="4">
+      <path d="M250 255.0833L180 220.1111M250 255.0833L320 140.0555M250 255.0833L320 290.0555M250 255.0833L180 370.1111" />
+    </g>
+
+    <!-- outer silhouette and front ridge -->
+    <path d="M180 60L40 140.0555L40 290.0555L180 370.1111" fill="none" stroke="#101a51" stroke-width="9" />
+    <path d="M180 60L320 140.0555L320 290.0555L180 370.1111" fill="none" stroke="url(#right-edge)" stroke-width="9" />
+    <path d="M40 140.0555L180 220.1111L320 140.0555" fill="none" stroke="url(#top-edge)" stroke-width="9" />
+    <path d="M180 220.1111V370.1111" fill="none" stroke="url(#front-edge)" stroke-width="9" />
+  </g>
+
+  <!-- dark rear vertices -->
+  <g fill="url(#back-point)" stroke="#5877c9" stroke-width="3">
+    <circle cx="180" cy="60" r="13" />
+    <circle cx="320" cy="140.0555" r="13" />
+    <circle cx="40" cy="140.0555" r="13" />
+    <circle cx="40" cy="290.0555" r="13" />
+  </g>
+  <circle cx="320" cy="290.0555" r="13" fill="url(#back-violet)" stroke="#8c70ed" stroke-width="3" />
+
+  <!-- bright front ridge vertices and mesh control points -->
+  <g fill="url(#front-point)" stroke="#ffffff" stroke-width="3">
+    <circle cx="180" cy="220.1111" r="15" />
+    <circle cx="180" cy="370.1111" r="15" />
+  </g>
+  <g fill="#50eaf7" stroke="#d9feff" stroke-width="2">
+    <circle cx="180" cy="140.0555" r="9" />
+    <circle cx="110" cy="255.0833" r="9" />
+    <circle cx="250" cy="255.0833" r="9" />
+  </g>
+  <g fill="#ffffff" stroke="none">
+    <circle cx="180" cy="220.1111" r="4" />
+    <circle cx="180" cy="370.1111" r="4" />
+  </g>
+
+  <text x="390" y="270" fill="url(#wordmark)" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="132" font-weight="700" letter-spacing="-4">MeshShift</text>
+</svg>

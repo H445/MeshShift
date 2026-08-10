@@ -1,5 +1,7 @@
 # MeshShift
 
+![MeshShift logo](docs/images/meshshift-logo.png)
+
 MeshShift is an offline 3D asset conversion and optimization toolkit with a
 local web UI, a Node.js CLI, and a reusable TypeScript API. It began as an
 effort to add asset-processing capabilities to [Modly](https://modly3d.app/),
