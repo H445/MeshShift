@@ -1,6 +1,6 @@
 # ModelShift: initial walkthrough
 
-This walkthrough covers the first browser workflow: open a model, set LOD triangle targets, generate an optimized preview, pin an important vertex, and export the result.
+This walkthrough covers the first browser workflow: open a model, set LOD triangle targets, generate an optimized preview, pin important vertices, and export the result.
 
 ## Before you start
 
@@ -44,6 +44,18 @@ When it finishes, the **Output** viewer shows the optimized model and the LOD re
 Click **Edit detail pins**, select the LOD that should retain the point, and click the model where the vertex matters. ModelShift locks the nearest vertex from that LOD through deeper levels. The pinned point appears in the **Detail pins** list.
 
 ![A pinned vertex shown in the output viewer and Detail pins list](images/modelshift-06-pin-vertex.png)
+
+For precise placement, turn on the output viewer's **Toggle wireframe** control while **Edit detail pins** is active. This exposes the topology and makes it easier to place several pins on caps, edges, or other silhouette-critical areas. The example below shows three pins on the same model.
+
+![Output viewer in wireframe mode with three pinned vertices](images/modelshift-08-wireframe-multiple-pins.png)
+
+Use the **Preview level of detail** slider to compare the same pins across the generated levels. In this example, LOD0 is the original 3.0k-triangle mesh, LOD1 is reduced to 1.5k triangles, and LOD2 is reduced to 948 triangles. The blue markers and the **LOD0+** entries in the **Detail pins** list show that these pins are carried through the deeper levels.
+
+![LOD0 preview with three pinned vertices](images/modelshift-09-lod0-multiple-pins.png)
+
+![LOD1 preview with three pinned vertices](images/modelshift-10-lod1-multiple-pins.png)
+
+![LOD2 preview with three pinned vertices](images/modelshift-11-lod2-multiple-pins.png)
 
 If you change a pin after preview generation, exit pin-edit mode and click **Regenerate optimized preview** so the cached optimization includes the new pin.
 
