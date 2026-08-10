@@ -93,12 +93,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/H445/gltf-to-fbx.git"
+    "url": "git+https://github.com/H445/ModelShift.git"
   },
   "keywords": [],
   "author": "",
   "bugs": {
-    "url": "https://github.com/H445/gltf-to-fbx/issues"
+    "url": "https://github.com/H445/ModelShift/issues"
   },
-  "homepage": "https://github.com/H445/gltf-to-fbx#readme"
+  "homepage": "https://github.com/H445/ModelShift#readme"
 }
