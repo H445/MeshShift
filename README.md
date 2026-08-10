@@ -5,7 +5,7 @@ ModelShift is an offline 3D asset converter with a local web UI, a Node.js CLI, 
 ## Formats
 
 | Direction | Formats                                                             |
-| --------- | ------------------------------------------------------------------- |
+|-----------|---------------------------------------------------------------------|
 | Input     | GLB, glTF, FBX, OBJ, STL, PLY, Collada (`.dae`), 3D Studio (`.3ds`) |
 | Output    | FBX, GLB, glTF, OBJ, STL, PLY, Collada (`.dae`)                     |
 
@@ -237,8 +237,6 @@ The versioned release contract and audit evidence live in:
 - [Threat model](docs/THREAT_MODEL.md)
 - [Operations and release runbook](docs/OPERATIONS_RUNBOOK.md)
 - [Release approval record](docs/RELEASE_APPROVAL_RECORD.md)
-- [Ship-readiness plan](SHIP_READINESS_PLAN.md)
-- [Ship-readiness evidence report](SHIP_READINESS_REPORT.md)
 
 `npm run benchmark` writes the current machine's measurements to
 `artifacts/benchmark-baseline.json`; `npm run benchmark:verify` enforces the
