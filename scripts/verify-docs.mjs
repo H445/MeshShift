@@ -1,13 +1,28 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const readmePath = resolve(root, 'README.md');
-const readme = await readFile(readmePath, 'utf8');
+const docsRoot = resolve(root, 'docs');
+const docEntries = await readdir(docsRoot, { recursive: true });
+const documentationPaths = [
+  readmePath,
+  ...docEntries.filter((entry) => entry.endsWith('.md')).map((entry) => resolve(docsRoot, entry)),
+];
+const documentation = await Promise.all(
+  documentationPaths.map(async (path) => ({
+    path,
+    text: await readFile(path, 'utf8'),
+  })),
+);
+const documentationText = documentation
+  .map(({ text }) => text)
+  .join('\n')
+  .replace(/\s+/g, ' ');
 const packageJson = JSON.parse(await readFile(resolve(root, 'package.json'), 'utf8'));
 const cliPath = resolve(root, 'dist/cli/modelshift.mjs');
 const fixturePath = resolve(root, 'test/fixtures/cube.glb');
@@ -50,14 +65,18 @@ const requiredDocumentation = [
   'no model is uploaded to a remote service',
 ];
 for (const text of requiredDocumentation) {
-  if (!readme.includes(text)) throw new Error(`README.md is missing required text: ${text}`);
+  if (!documentationText.includes(text)) {
+    throw new Error(`Documentation is missing required text: ${text}`);
+  }
 }
 
 const linkPattern = /\[[^\]]+\]\(([^)]+)\)/g;
-for (const match of readme.matchAll(linkPattern)) {
-  const target = match[1].split('#', 1)[0];
-  if (!target || /^[a-z][a-z\d+.-]*:/i.test(target)) continue;
-  await stat(resolve(root, target));
+for (const { path, text } of documentation) {
+  for (const match of text.matchAll(linkPattern)) {
+    const target = match[1].split('#', 1)[0];
+    if (!target || /^[a-z][a-z\d+.-]*:/i.test(target)) continue;
+    await stat(resolve(path, '..', target));
+  }
 }
 
 const help = await run([cliPath, '--help']);
