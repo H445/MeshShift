@@ -127,6 +127,7 @@ export function createViewer(canvas: HTMLCanvasElement): ViewerHandle {
   let detailPinEditMode = false;
   let detailPinMarkers: THREE.Group | null = null;
   let detailPinHoverMarker: THREE.Mesh | null = null;
+  const detailPinContentCenter = new THREE.Vector3();
   const detailPointListeners = new Set<(pick: DetailPinPick) => void>();
   const pinRaycaster = new THREE.Raycaster();
   const pinPointer = new THREE.Vector2();
@@ -172,8 +173,33 @@ export function createViewer(canvas: HTMLCanvasElement): ViewerHandle {
         contentBounds.expandByObject(mesh);
       }
     });
+    const worldCenter = contentBounds.getCenter(new THREE.Vector3());
+    detailPinContentCenter.copy(root.worldToLocal(worldCenter));
     const size = contentBounds.getSize(new THREE.Vector3());
     return Math.max(1e-5, Math.max(size.x, size.y, size.z) * 0.012);
+  }
+
+  function updateDetailPinMarkerOpacity(): void {
+    if (!detailPinMarkers || detailPinMarkers.children.length === 0) return;
+    root.updateWorldMatrix(true, true);
+    const modelCenter = root.localToWorld(detailPinContentCenter.clone());
+    const cameraVector = camera.position.clone().sub(modelCenter);
+    const cameraLength = cameraVector.length();
+    if (cameraLength <= 1e-6) return;
+    cameraVector.multiplyScalar(1 / cameraLength);
+
+    for (const child of detailPinMarkers.children) {
+      const marker = child as THREE.Mesh;
+      if (!marker.isMesh) continue;
+      const markerVector = marker.getWorldPosition(new THREE.Vector3()).sub(modelCenter);
+      const markerLength = markerVector.length();
+      if (markerLength <= 1e-6) continue;
+      const facing = markerVector.multiplyScalar(1 / markerLength).dot(cameraVector);
+      const isBackFacing = facing < -0.12;
+      const selected = selectedDetailPinId === marker.userData.detailPinId;
+      const material = marker.material as THREE.MeshBasicMaterial;
+      material.opacity = isBackFacing ? (selected ? 0.6 : 0.5) : 1;
+    }
   }
 
   function refreshDetailPinMarkers(): void {
@@ -204,6 +230,8 @@ export function createViewer(canvas: HTMLCanvasElement): ViewerHandle {
           color: selected ? 0xffe06b : 0x39c5ff,
           depthTest: false,
           depthWrite: false,
+          transparent: true,
+          opacity: 1,
           toneMapped: false,
         }),
       );
@@ -392,6 +420,7 @@ export function createViewer(canvas: HTMLCanvasElement): ViewerHandle {
     // especially noticeable after a large source scene has been loaded.
     if (!canvas.hidden && canvas.clientWidth > 0 && canvas.clientHeight > 0) {
       controls.update();
+      updateDetailPinMarkerOpacity();
       renderer.render(scene, camera);
       sampledFrameCount += 1;
       if (now - sampleWindowStart >= 1000) {
@@ -550,6 +579,7 @@ export function createViewer(canvas: HTMLCanvasElement): ViewerHandle {
       handleResize();
       if (renderer.domElement.width === 0 || renderer.domElement.height === 0) return false;
       controls.update();
+      updateDetailPinMarkerOpacity();
       renderer.render(scene, camera);
       const context = targetCanvas.getContext('2d');
       if (!context) return false;
