@@ -13,8 +13,6 @@ export const RELEASE_FILES = [
   'dist/client/THIRD_PARTY_NOTICES.md',
   'CHANGELOG.md',
   'SECURITY.md',
-  'SHIP_READINESS_PLAN.md',
-  'SHIP_READINESS_REPORT.md',
   'docs/RELEASE_CONTRACT.md',
   'docs/FORMAT_FEATURE_MATRIX.md',
   'docs/QUALITY_BUDGETS.md',

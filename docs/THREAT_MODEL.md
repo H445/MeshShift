@@ -13,22 +13,27 @@
    authenticated internet service.
 5. **Release boundary:** package contents, vendored WASM, dependencies, and CI
    artifacts become executable customer inputs.
+6. **Desktop boundary:** the Electron renderer is untrusted UI code; the main
+   process, preload bridge, custom protocol, and native filesystem are
+   privileged components.
 
 ## Threat register and controls
 
-| Threat                                    | Impact                                              | Controls                                                                                               | Evidence / residual                                                            |
-| ----------------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------ |
-| Path traversal or absolute companion path | Read outside selected input root                    | Relative-name validation, realpath containment, URL rejection, symlink checks                          | CLI path tests; continue fuzzing unusual Unicode/path encodings                |
-| Path traversal or device-name output      | Overwrite unintended files                          | Output segment validation, output-root containment, symlink checks, atomic temp+rename                 | CLI output tests; Windows matrix remains required                              |
-| Malformed parser input                    | Crash, corruption, denial of service                | Aggregate bytes, file-count, option, and browser direct-GLB limits; typed parse errors                 | Malformed-input tests; large adversarial corpus remains required               |
-| Export stream overrun                     | Disk exhaustion                                     | Content-Length precheck and streamed byte ceiling; temporary cleanup                                   | Export-server tests                                                            |
-| Partial output after interruption         | Misleading or corrupt artifact                      | Temporary file then atomic rename; cleanup on failure, CLI signal propagation                           | Output/export tests and CLI interruption verifier                              |
-| Cancellation during conversion            | Stale work, leaked worker memory, or partial output | AbortSignal phase checks, CLI `SIGINT`/`SIGTERM`, worker termination for obsolete jobs, atomic output commit | Cooperative cancellation tests and CLI interruption verifier; native/OS interruption remains required |
-| Remote resource exfiltration              | Privacy loss or network dependency                  | CLI rejects URL references; browser processing is local; static hosting contract                       | Companion-resource tests and release contract                                  |
-| Vendored runtime tampering                | Supply-chain compromise                             | Third-party notices, release manifest SHA-256, locked install, audit, SBOM                             | Build verifier and CI workflow; hosted attestation remains required            |
-| Secret or model data disclosure           | Privacy breach                                      | No telemetry by default, generic server errors, redacted support guidance, ignored generated artifacts | Security policy and release review                                             |
-| Worker/UI stale-state race                | Wrong asset exported or lost work                   | Request IDs, obsolete worker cancellation, queue state tests                                           | Browser workflow and UI tests; broader concurrency matrix remains required     |
-| ZIP/resource expansion abuse              | Disk/memory exhaustion                              | Input archives are not accepted; output ZIP contains only successful generated files                   | Contract explicitly excludes archive input; reassess if archive input is added |
+| Threat                                    | Impact                                              | Controls                                                                                                                                                 | Evidence / residual                                                                                   |
+| ----------------------------------------- | --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Path traversal or absolute companion path | Read outside selected input root                    | Relative-name validation, realpath containment, URL rejection, symlink checks                                                                            | CLI path tests; continue fuzzing unusual Unicode/path encodings                                       |
+| Path traversal or device-name output      | Overwrite unintended files                          | Output segment validation, output-root containment, symlink checks, atomic temp+rename                                                                   | CLI output tests; Windows matrix remains required                                                     |
+| Malformed parser input                    | Crash, corruption, denial of service                | Aggregate bytes, file-count, option, and browser direct-GLB limits; typed parse errors                                                                   | Malformed-input tests; large adversarial corpus remains required                                      |
+| Export stream overrun                     | Disk exhaustion                                     | Content-Length precheck and streamed byte ceiling; temporary cleanup                                                                                     | Export-server tests                                                                                   |
+| Partial output after interruption         | Misleading or corrupt artifact                      | Temporary file then atomic rename; cleanup on failure, CLI signal propagation                                                                            | Output/export tests and CLI interruption verifier                                                     |
+| Cancellation during conversion            | Stale work, leaked worker memory, or partial output | AbortSignal phase checks, CLI `SIGINT`/`SIGTERM`, worker termination for obsolete jobs, atomic output commit                                             | Cooperative cancellation tests and CLI interruption verifier; native/OS interruption remains required |
+| Remote resource exfiltration              | Privacy loss or network dependency                  | CLI rejects URL references; browser processing is local; static hosting contract                                                                         | Companion-resource tests and release contract                                                         |
+| Vendored runtime tampering                | Supply-chain compromise                             | Third-party notices, release manifest SHA-256, locked install, audit, SBOM                                                                               | Build verifier and CI workflow; hosted attestation remains required                                   |
+| Secret or model data disclosure           | Privacy breach                                      | No telemetry by default, generic server errors, redacted support guidance, ignored generated artifacts                                                   | Security policy and release review                                                                    |
+| Worker/UI stale-state race                | Wrong asset exported or lost work                   | Request IDs, obsolete worker cancellation, queue state tests                                                                                             | Browser workflow and UI tests; broader concurrency matrix remains required                            |
+| ZIP/resource expansion abuse              | Disk/memory exhaustion                              | Input archives are not accepted; output ZIP contains only successful generated files                                                                     | Contract explicitly excludes archive input; reassess if archive input is added                        |
+| Untrusted Electron navigation or IPC      | Code execution or unintended filesystem writes      | Sandboxed renderer, context isolation, no Node integration, navigation/new-window denial, typed sender/path/size validation, custom protocol containment | `desktop:verify`; clean-machine and packaged smoke tests remain required                              |
+| Generated Assimp eval under CSP           | Expanded renderer execution surface                 | Only packaged vendored code is loaded; no remote scripts; the exact CSP exception is documented and reviewed with the Assimp vendor/runtime upgrade      | Revisit when the vendored runtime can be built without dynamic execution                              |
 
 ## Security assumptions
 
@@ -40,6 +45,11 @@
 - WASM and parser limits reduce but do not eliminate algorithmic complexity or
   host memory risk; maximum-supported-model qualification is operationally
   required.
+- The packaged Assimp Emscripten wrapper currently contains generated
+  `Function` constructors. The desktop CSP therefore contains the narrowly
+  scoped `unsafe-eval` permission required by that vendored runtime; it does
+  not permit remote script sources. This is a tracked residual risk and must
+  be removed or re-reviewed when the vendor/runtime build changes.
 
 ## Release security decision
 

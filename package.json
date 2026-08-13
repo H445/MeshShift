@@ -1,7 +1,7 @@
 {
   "name": "meshshift",
   "version": "0.2.0",
-  "description": "Offline conversion between mainstream 3D asset formats. CLI + static web UI, no server.",
+  "description": "Offline 3D asset conversion and optimization toolkit.",
   "license": "MIT",
   "type": "module",
   "packageManager": "pnpm@10.30.1",
@@ -24,12 +24,10 @@
     "THIRD_PARTY_NOTICES.md",
     "CHANGELOG.md",
     "SECURITY.md",
-    "SHIP_READINESS_PLAN.md",
-    "SHIP_READINESS_REPORT.md",
     "docs"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "dev": "node scripts/dev.mjs",
@@ -37,7 +35,18 @@
     "build:core": "tsup --config tsup.config.ts && npm run build:vendor",
     "build:cli": "tsup --config tsup.cli.config.ts && npm run build:vendor",
     "build:client": "vite build",
+    "build:desktop": "tsup --config tsup.desktop.config.ts",
     "build": "node scripts/build.mjs",
+    "desktop:build": "npm run build && npm run build:desktop",
+    "desktop:dev": "node scripts/desktop-dev.mjs",
+    "desktop:package": "npm run desktop:build && electron-builder --dir",
+    "desktop:dist": "npm run desktop:build && electron-builder",
+    "desktop:verify": "node scripts/verify-desktop.mjs",
+    "desktop:portable:stage": "node scripts/stage-portable-cli.mjs",
+    "desktop:portable:package": "node scripts/package-portable-cli.mjs",
+    "desktop:portable:archive": "node scripts/archive-portable-cli.mjs",
+    "desktop:checksums": "node scripts/make-checksums.mjs --dir artifacts/desktop",
+    "release:desktop:check": "npm run desktop:build && npm run desktop:verify",
     "preview": "vite preview",
     "test": "vitest run",
     "test:report": "vitest run --reporter=json --outputFile=artifacts/test-results.json",
@@ -80,16 +89,14 @@
     "@types/three": "^0.169.0",
     "@typescript-eslint/eslint-plugin": "^8.16.0",
     "@typescript-eslint/parser": "^8.16.0",
+    "electron": "43.4.0",
+    "electron-builder": "^26.15.3",
     "eslint": "^9.16.0",
     "prettier": "^3.4.1",
     "tsup": "^8.3.5",
     "typescript": "^5.7.2",
     "vite": "^5.4.11",
     "vitest": "^2.1.6"
-  },
-  "directories": {
-    "doc": "docs",
-    "test": "test"
   },
   "repository": {
     "type": "git",

@@ -1,6 +1,6 @@
 # Quick start
 
-MeshShift requires Node.js 20 or newer and pnpm 10.30.1. Install pnpm
+MeshShift requires Node.js 22 or newer and pnpm 10.30.1. Install pnpm
 globally if it is not already available:
 
 ```bash
@@ -51,6 +51,16 @@ The reusable Node API is written to `dist/core/`, the CLI bundle is
 `dist/cli/meshshift.mjs`, and the production web app is written to
 `dist/client/`. Use `pnpm preview` when testing the production build locally
 so the `exports/` writer remains available.
+
+For the Electron desktop development build, run:
+
+```bash
+pnpm desktop:dev
+```
+
+The packaged desktop application uses Electron's embedded runtime. Published
+portable CLI archives include their own supported Node.js runtime and do not
+require Node.js to be installed separately.
 
 ## Export destination
 

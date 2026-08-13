@@ -1,0 +1,87 @@
+name: MeshShift CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PNPM_VERSION: 10.30.1
+
+jobs:
+  quality:
+    name: Quality / Node ${{ matrix.node }}
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22.x', '24.x']
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+      - name: Enable pnpm
+        shell: bash
+        run: corepack enable && corepack prepare pnpm@${PNPM_VERSION} --activate
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Audit production dependencies
+        run: pnpm audit --prod --audit-level=high
+      - name: Run release checks
+        run: pnpm run release:check
+
+  platform:
+    name: Platform / ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-x64
+            runner: windows-2025
+          - name: linux-x64
+            runner: ubuntu-22.04
+          - name: macos-x64
+            runner: macos-15-intel
+          - name: macos-arm64
+            runner: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24.x
+          cache: pnpm
+      - name: Enable pnpm
+        shell: bash
+        run: corepack enable && corepack prepare pnpm@${PNPM_VERSION} --activate
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build desktop inputs
+        run: pnpm run desktop:build
+      - name: Verify desktop inputs
+        run: pnpm run desktop:verify
+      - name: Package unpacked desktop app
+        run: pnpm exec electron-builder --dir --publish never
+      - name: Upload platform evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ci-${{ matrix.name }}
+          path: |
+            artifacts/desktop
+            artifacts/*.json
+          if-no-files-found: warn
+          retention-days: 14

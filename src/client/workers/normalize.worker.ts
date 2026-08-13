@@ -1,5 +1,14 @@
 import type { ModelWorkerRequest, ModelWorkerResponse } from '../lib/preview-normalizer.js';
 import type { AssetFile, ConvertPhase } from '../../shared/options.js';
+import {
+  convertAsset,
+  convertPreparedAsset,
+  getMaxInputBytes,
+  InputTooLargeError,
+  inspectGltf,
+  optimizeGltf,
+  selectGlbLods,
+} from '@core';
 
 interface WorkerScope {
   onmessage: ((event: MessageEvent<ModelWorkerRequest>) => void) | null;
@@ -46,15 +55,6 @@ function postProgress(id: number, phase: ConvertPhase, pct: number): void {
 async function processRequest(message: ModelWorkerRequest): Promise<void> {
   try {
     installWorkerCanvasDocument();
-    const {
-      convertAsset,
-      convertPreparedAsset,
-      getMaxInputBytes,
-      InputTooLargeError,
-      inspectGltf,
-      optimizeGltf,
-      selectGlbLods,
-    } = await import('@core');
     if (message.type === 'normalize') {
       const directGlb =
         message.files.length === 1 && message.files[0].name.toLowerCase().endsWith('.glb')

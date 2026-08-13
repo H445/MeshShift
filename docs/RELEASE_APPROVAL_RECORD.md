@@ -5,51 +5,56 @@ candidate being shipped. An empty field is an open gate, not an approval.
 
 ## Candidate identity
 
-| Field | Value |
-| --- | --- |
-| Package name/version | `meshshift@0.2.0` |
-| Release commit | |
-| Branch/tag | |
-| Node and pnpm versions | |
-| Lockfile hash | |
-| Package SHA-256 | |
-| `RELEASE-MANIFEST.json` SHA-256 | |
-| SBOM SHA-256 | |
-| Evidence bundle location | |
+| Field                           | Value             |
+| ------------------------------- | ----------------- |
+| Package name/version            | `meshshift@0.2.0` |
+| Release commit                  |                   |
+| Branch/tag                      |                   |
+| Node and pnpm versions          |                   |
+| Lockfile hash                   |                   |
+| Package SHA-256                 |                   |
+| `RELEASE-MANIFEST.json` SHA-256 |                   |
+| SBOM SHA-256                    |                   |
+| Evidence bundle location        |                   |
 
 ## Mandatory evidence gates
 
-| Gate | Evidence location | Result | Reviewer/date |
-| --- | --- | --- | --- |
-| Node 20 hosted CI | | ☐ pass ☐ fail | |
-| Node 22 hosted CI | | ☐ pass ☐ fail | |
-| Production dependency audit | | ☐ pass ☐ fail | |
-| SBOM generation and retention | | ☐ pass ☐ fail | |
-| Release manifest verification | | ☐ pass ☐ fail | |
-| Eight-fixture performance budget | | ☐ pass ☐ fail | |
-| Eight-item concurrency smoke | | ☐ pass ☐ fail | |
-| Packed-consumer installation and CLI smoke | | ☐ pass ☐ fail | |
-| Browser/assistive-technology matrix | | ☐ pass ☐ fail | |
-| Maximum-model and low-resource qualification | | ☐ pass ☐ fail | |
-| Build-provenance attestation verification | | ☐ pass ☐ fail | |
-| Rollback rehearsal or recorded rollback procedure | | ☐ pass ☐ fail | |
+| Gate                                                | Evidence location | Result        | Reviewer/date |
+| --------------------------------------------------- | ----------------- | ------------- | ------------- |
+| Node 22 hosted CI                                   |                   | ☐ pass ☐ fail |               |
+| Node 24 hosted CI                                   |                   | ☐ pass ☐ fail |               |
+| Production dependency audit                         |                   | ☐ pass ☐ fail |               |
+| SBOM generation and retention                       |                   | ☐ pass ☐ fail |               |
+| Release manifest verification                       |                   | ☐ pass ☐ fail |               |
+| Eight-fixture performance budget                    |                   | ☐ pass ☐ fail |               |
+| Eight-item concurrency smoke                        |                   | ☐ pass ☐ fail |               |
+| Packed-consumer installation and CLI smoke          |                   | ☐ pass ☐ fail |               |
+| Browser/assistive-technology matrix                 |                   | ☐ pass ☐ fail |               |
+| Maximum-model and low-resource qualification        |                   | ☐ pass ☐ fail |               |
+| Build-provenance attestation verification           |                   | ☐ pass ☐ fail |               |
+| Windows NSIS/portable artifact smoke test           |                   | ☐ pass ☐ fail |               |
+| macOS x64/arm64 signed and notarized DMG smoke test |                   | ☐ pass ☐ fail |               |
+| Linux x64 AppImage smoke test                       |                   | ☐ pass ☐ fail |               |
+| Portable CLI bundled-runtime smoke test             |                   | ☐ pass ☐ fail |               |
+| Release checksum and asset-set verification         |                   | ☐ pass ☐ fail |               |
+| Rollback rehearsal or recorded rollback procedure   |                   | ☐ pass ☐ fail |               |
 
 ## Residual-risk disposition
 
-| Finding | Disposition | Owner | Review/expiry date | Approval |
-| --- | --- | --- | --- | --- |
-| Broader browser and assistive-technology coverage | | | | |
-| Maximum-model, low-resource, and customer-hardware qualification | | | | |
-| Hosted provenance policy execution | | | | |
+| Finding                                                          | Disposition | Owner | Review/expiry date | Approval |
+| ---------------------------------------------------------------- | ----------- | ----- | ------------------ | -------- |
+| Broader browser and assistive-technology coverage                |             |       |                    |          |
+| Maximum-model, low-resource, and customer-hardware qualification |             |       |                    |          |
+| Hosted provenance policy execution                               |             |       |                    |          |
 
 ## Role approvals
 
-| Role | Named individual/team | Decision | Timestamp | Signature or ticket |
-| --- | --- | --- | --- | --- |
-| Release Engineering | | ☐ approve ☐ reject | | |
-| Security | | ☐ approve ☐ reject | | |
-| Product/QA | | ☐ approve ☐ reject | | |
-| Support/Operations | | ☐ approve ☐ reject | | |
+| Role                | Named individual/team | Decision           | Timestamp | Signature or ticket |
+| ------------------- | --------------------- | ------------------ | --------- | ------------------- |
+| Release Engineering |                       | ☐ approve ☐ reject |           |                     |
+| Security            |                       | ☐ approve ☐ reject |           |                     |
+| Product/QA          |                       | ☐ approve ☐ reject |           |                     |
+| Support/Operations  |                       | ☐ approve ☐ reject |           |                     |
 
 ## Final decision
 

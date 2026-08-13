@@ -1,0 +1,170 @@
+name: MeshShift Release
+
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      prerelease:
+        description: Publish as an unsigned internal prerelease
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PNPM_VERSION: 10.30.1
+  MESHSHIFT_NODE_RUNTIME_VERSION: 24.19.0
+
+jobs:
+  build:
+    name: Build / ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: win-x64
+            runner: windows-2025
+            target: win
+            arch: x64
+            runtimePlatform: win32
+            archiveExt: zip
+          - name: linux-x64
+            runner: ubuntu-22.04
+            target: linux
+            arch: x64
+            runtimePlatform: linux
+            archiveExt: tar.gz
+          - name: macos-x64
+            runner: macos-15-intel
+            target: mac
+            arch: x64
+            runtimePlatform: darwin
+            archiveExt: tar.gz
+          - name: macos-arm64
+            runner: macos-15
+            target: mac
+            arch: arm64
+            runtimePlatform: darwin
+            archiveExt: tar.gz
+    steps:
+      - name: Checkout tagged commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24.x
+          cache: pnpm
+      - name: Enable pnpm
+        shell: bash
+        run: corepack enable && corepack prepare pnpm@${PNPM_VERSION} --activate
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Validate tag version
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          test "v${VERSION}" = "${GITHUB_REF_NAME}"
+      - name: Build desktop app
+        run: pnpm run desktop:build
+      - name: Verify desktop inputs
+        run: pnpm run desktop:verify
+      - name: Package desktop artifact
+        shell: bash
+        run: pnpm exec electron-builder --${{ matrix.target }} --${{ matrix.arch }} --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ vars.MESHSHIFT_SIGNING_READY == 'true' && 'true' || 'false' }}
+          CSC_LINK: ${{ secrets.WINDOWS_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      - name: Stage production CLI app
+        run: pnpm run desktop:portable:stage
+      - name: Download and verify bundled Node runtime
+        shell: bash
+        run: node scripts/download-node-runtime.mjs
+        env:
+          MESHSHIFT_NODE_RUNTIME_PLATFORM: ${{ matrix.runtimePlatform }}
+          MESHSHIFT_NODE_RUNTIME_ARCH: ${{ matrix.arch }}
+      - name: Package portable CLI directory
+        shell: bash
+        run: >-
+          pnpm run desktop:portable:package --
+          --output artifacts/portable-cli
+          --app-dir artifacts/portable-app
+          --platform ${{ matrix.runtimePlatform }}
+          --arch ${{ matrix.arch }}
+      - name: Archive portable CLI
+        shell: bash
+        run: >-
+          pnpm run desktop:portable:archive --
+          --input artifacts/portable-cli
+          --output artifacts/release/meshshift-${{ matrix.name }}-cli.${{ matrix.archiveExt }}
+      - name: Upload platform artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-${{ matrix.name }}
+          path: |
+            artifacts/desktop/*
+            artifacts/release/*
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    name: Aggregate, attest, and publish
+    needs: build
+    if: >-
+      (github.event_name == 'push' &&
+      vars.MESHSHIFT_SIGNING_READY == 'true' &&
+      vars.MESHSHIFT_NOTARIZATION_READY == 'true') ||
+      (github.event_name == 'workflow_dispatch' && inputs.prerelease == true)
+    runs-on: ubuntu-22.04
+    environment: release
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - name: Checkout tagged commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Download platform artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: release-*
+          path: artifacts/release-assets
+          merge-multiple: true
+      - name: Generate release checksums
+        run: node scripts/make-checksums.mjs --dir artifacts/release-assets
+      - name: Generate artifact provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-checksums: artifacts/release-assets/SHA256SUMS.txt
+      - name: Verify release asset set
+        shell: bash
+        run: |
+          test "$(find artifacts/release-assets -maxdepth 1 -type f | wc -l)" -ge 7
+          ! find artifacts/release-assets -maxdepth 1 -type f -name 'latest*.yml' | grep .
+      - name: Create or update draft GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          PRERELEASE_FLAG=''
+          if [ "${{ github.event_name }}" = 'workflow_dispatch' ]; then PRERELEASE_FLAG='--prerelease'; fi
+          gh release create "v${VERSION}" --draft --title "MeshShift ${VERSION}" \
+            --generate-notes ${PRERELEASE_FLAG} artifacts/release-assets/*

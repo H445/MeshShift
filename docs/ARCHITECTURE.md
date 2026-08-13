@@ -8,6 +8,20 @@ Local web UI ─┘                    └──────────── l
       └─ project-scoped writer ── exports/
 ```
 
+The desktop distribution adds a small Electron main process around the same
+renderer bundle:
+
+```text
+Electron main process ── meshshift://app ── packaged Vite renderer + workers
+          │
+          └─ validated IPC save request ── Documents/MeshShift/exports/
+```
+
+The renderer has context isolation, no Node integration, and a sandbox. The
+main process owns filesystem writes and rejects untrusted IPC senders and
+navigation. Development may use the local Vite server; packaged builds serve
+only the embedded renderer through the registered `meshshift://app` protocol.
+
 All import paths are normalized through Assimp. The browser previews every
 supported source and result by generating a temporary GLB and loading it with
 three.js. Multi-file outputs retain their companion files in `exports/`.

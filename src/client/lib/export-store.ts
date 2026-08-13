@@ -43,6 +43,17 @@ function pendingExports(results: ConvertResult[]): PendingExport[] {
 }
 
 async function saveFile({ file, path }: PendingExport): Promise<SavedExport> {
+  const desktop = typeof window !== 'undefined' ? window.meshshiftDesktop : undefined;
+  if (desktop) {
+    const data =
+      file.data.buffer instanceof ArrayBuffer &&
+      file.data.byteOffset === 0 &&
+      file.data.byteLength === file.data.buffer.byteLength
+        ? file.data.buffer
+        : file.data.slice().buffer;
+    return desktop.saveExport(path, data);
+  }
+
   let response: Response;
   try {
     const data = file.data;

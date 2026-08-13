@@ -8,15 +8,16 @@ outside the contract may still work, but are not enterprise support promises.
 
 | Surface          | Supported contract                                                                                                                  | Qualification requirement                                                                         |
 | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| CLI and Node API | Node.js 20 LTS and 22 LTS; x64 and arm64 where the host can run the bundled WASM runtime                                            | CI typecheck, tests, build, package smoke test, and production dependency audit on Node 20 and 22 |
-| Windows          | Windows 10/11 x64; PowerShell and a regular writable output directory                                                               | Release smoke test on a clean Windows runner                                                      |
-| Linux            | Ubuntu 22.04/24.04 x64; regular writable output directory                                                                           | Release smoke test on a clean Linux runner                                                        |
-| macOS            | macOS 13 or newer, x64 or arm64                                                                                                     | Release smoke test on one Intel and one Apple Silicon runner before broad customer support        |
+| CLI and Node API | Node.js 22 LTS and 24 LTS; x64 and arm64 where the host can run the bundled WASM runtime                                            | CI typecheck, tests, build, package smoke test, and production dependency audit on Node 22 and 24 |
+| Windows          | Windows 10/11 x64; signed NSIS installer or portable ZIP; regular writable output directory                                       | Release smoke test on a clean Windows runner                                                      |
+| Linux            | Ubuntu 22.04/24.04 x64; AppImage or fallback tarball; regular writable output directory                                           | Release smoke test on a clean Linux runner                                                        |
+| macOS            | macOS 13 or newer, signed/notarized DMG, x64 or arm64                                                                              | Release smoke test on one Intel and one Apple Silicon runner before broad customer support        |
 | Browser UI       | Current and previous stable Chromium, Firefox, and Safari releases; keyboard and non-pointer interaction are required               | Browser matrix run against the built static client and the local export writer                    |
 | Hosting          | Local Vite development/preview server for filesystem exports; any static host for conversion and preview without filesystem exports | HTTP 200, asset loading, WASM loading, and export behavior are checked separately                 |
 
-The CI workflow currently proves Node 20 and 22 on Ubuntu and runs a Node 22
-platform smoke on the latest Ubuntu, Windows, and macOS hosted runners.
+The desktop CI and release workflow is required to prove Node 22 and 24 on
+Ubuntu and run native platform smoke on Windows, Linux, macOS Intel, and macOS
+Apple Silicon runners.
 Browser-version, high-DPI, and screen-reader qualification are still
 release-checkpoint evidence requirements, not claims that can be inferred from
 the local test run.
@@ -60,7 +61,7 @@ model at the limit will fit a particular machine's available memory.
 
 ## Public interface contract
 
-- The package name is `meshshift`, with the Node engine requirement `>=20`.
+- The package name is `meshshift`, with the Node engine requirement `>=22`.
 - The public package export is the reusable core API. `convertGltfToFbx` remains
   a compatibility wrapper and defaults to FBX.
 - The CLI executable is `meshshift`.

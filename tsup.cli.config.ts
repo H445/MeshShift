@@ -11,7 +11,7 @@ const packageVersion = (
 export default defineConfig({
   entry: { meshshift: 'src/cli/index.ts' },
   format: ['esm'],
-  target: 'node20',
+  target: 'node22',
   splitting: false,
   sourcemap: false,
   clean: true,

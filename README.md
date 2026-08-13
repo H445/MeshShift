@@ -37,6 +37,18 @@ referenced textures alongside the primary file.
 - [LOD generation, texture reprojection, and vertex pins](docs/LOD.md)
 - [Format and feature matrix](docs/FORMAT_FEATURE_MATRIX.md)
 
+## Desktop releases
+
+GitHub Releases publish standalone desktop builds for Windows (`.exe`), macOS
+(`.dmg`), and Linux (`.AppImage`). The Electron app packages the browser UI,
+the Assimp WebAssembly runtime, and the Node host so the desktop conversion
+path works offline. A portable CLI archive is also published for each
+supported platform and includes its own Node.js runtime.
+
+For local development, use `pnpm run desktop:dev`. To build distributable
+artifacts locally, use `pnpm run desktop:dist`; CI performs the final signing,
+notarization, checksum, and provenance steps for tagged releases.
+
 ## License
 
 MeshShift is MIT licensed. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)

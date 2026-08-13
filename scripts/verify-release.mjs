@@ -49,8 +49,8 @@ if (manifest.schemaVersion !== 1 || !Array.isArray(manifest.files)) {
   }
 }
 
-if (packageJson.engines?.node !== '>=20') {
-  failures.push('package metadata must declare Node.js >=20.');
+if (packageJson.engines?.node !== '>=22') {
+  failures.push('package metadata must declare Node.js >=22.');
 }
 if (packageJson.bin?.meshshift !== 'dist/cli/meshshift.mjs') {
   failures.push('package metadata points meshshift at an unexpected executable.');

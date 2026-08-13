@@ -1,0 +1,69 @@
+appId: com.meshshift.app
+productName: MeshShift
+artifactName: MeshShift-${version}-${os}-${arch}.${ext}
+asar: true
+disableDefaultIgnoredFiles: false
+directories:
+  output: artifacts/desktop
+  buildResources: build
+files:
+  - dist/desktop/**/*
+  - dist/client/**/*
+  - dist/vendor/**/*
+  - package.json
+  - LICENSE
+  - THIRD_PARTY_NOTICES.md
+  - CHANGELOG.md
+  - docs/RELEASE_CONTRACT.md
+  - docs/THREAT_MODEL.md
+  - docs/QUICK_START.md
+  - docs/CLI.md
+extraMetadata:
+  main: dist/desktop/main.cjs
+  productName: MeshShift
+  description: Offline 3D asset conversion and optimization toolkit.
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+  icon: docs/images/meshshift-favicon.png
+  requestedExecutionLevel: asInvoker
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: MeshShift
+mac:
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+  category: public.app-category.utilities
+  icon: docs/images/meshshift-favicon.png
+  hardenedRuntime: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.inherit.plist
+  minimumSystemVersion: '13.0'
+dmg:
+  title: MeshShift
+linux:
+  target:
+    - target: AppImage
+      arch:
+        - x64
+    - target: tar.gz
+      arch:
+        - x64
+  category: Utility
+  icon: docs/images/meshshift-favicon.png
+  executableName: meshshift
+  synopsis: Offline 3D asset conversion and optimization.
+  description: Convert and optimize 3D assets locally without uploading model data.
+publish: null

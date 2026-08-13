@@ -1,4 +1,5 @@
 import { defineConfig, normalizePath, type Plugin } from 'vite';
+import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createExportMiddleware } from './src/server/exportServer.js';
@@ -49,9 +50,30 @@ function watlasBrowserPlugin(): Plugin {
   };
 }
 
+/**
+ * Treat the vendored Emscripten wrapper as a normal module. It is an IIFE that
+ * assigns the factory to `assimpjs`; adding an ESM export avoids eval-like
+ * execution in the renderer and model worker.
+ */
+function assimpBrowserPlugin(): Plugin {
+  const virtualId = 'virtual:meshshift-assimp';
+  const resolvedId = '\0' + virtualId;
+  const sourcePath = resolve(__dirname, 'src/client/public/assimpjs.js');
+  return {
+    name: 'meshshift-assimp-browser',
+    resolveId(id) {
+      return id === virtualId ? resolvedId : undefined;
+    },
+    load(id) {
+      if (id !== resolvedId) return null;
+      return `${readFileSync(sourcePath, 'utf8')}\nexport default assimpjs;`;
+    },
+  };
+}
+
 export default defineConfig({
   base: './',
-  plugins: [watlasBrowserPlugin(), meshShiftExportPlugin()],
+  plugins: [watlasBrowserPlugin(), assimpBrowserPlugin(), meshShiftExportPlugin()],
   root: resolve(__dirname, 'src/client'),
   publicDir: resolve(__dirname, 'src/client/public'),
   resolve: {
@@ -81,10 +103,10 @@ export default defineConfig({
     strictPort: true,
   },
   worker: {
-    // The model worker lazy-loads the conversion/optimization core. ES output
-    // supports the resulting worker chunks; Vite's IIFE default does not.
+    // The worker contains a static module import of the vendored Assimp
+    // wrapper, so Vite's ES output can retain its lazy core chunks.
     format: 'es',
-    plugins: () => [watlasBrowserPlugin()],
+    plugins: () => [watlasBrowserPlugin(), assimpBrowserPlugin()],
   },
   build: {
     outDir: resolve(__dirname, 'dist/client'),

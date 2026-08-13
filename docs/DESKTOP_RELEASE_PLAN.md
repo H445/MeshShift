@@ -120,10 +120,11 @@ directory. Preserve the existing atomic-write and containment guarantees.
   `shell.openExternal`.
 - Add a restrictive Content Security Policy covering the exact needs of Vite
   chunks, workers, blobs, and WebAssembly.
-- The current Assimp browser loader uses `new Function`, which conflicts with a
-  strict CSP. Refactor it to load the vendored wrapper without eval-like code
-  before production, or record a time-bounded security exception with tests and
-  an owner. Do not silently add broad `unsafe-eval`.
+- The current vendored Assimp Emscripten output contains generated
+  `Function` constructors. The implementation keeps the wrapper local and
+  records the exact CSP exception in `docs/THREAT_MODEL.md`; do not expand it
+  to remote sources, and remove or re-review it when the vendored runtime can
+  be rebuilt without dynamic execution.
 - Prevent custom-protocol traversal and MIME confusion; map only known packaged
   paths and return safe response headers.
 - Review and flip Electron fuses that are unnecessary, including disabling
@@ -474,8 +475,8 @@ Rollback policy:
 - Each desktop artifact starts and converts without a separate Node install.
 - Each portable CLI uses its bundled, supported Node runtime with system Node
   absent from `PATH`.
-- Packaged workers and WASM load under the approved CSP without a silent broad
-  `unsafe-eval` exception.
+- Packaged workers and WASM load under the approved CSP with the documented,
+  vendored-Assimp-only dynamic-execution exception tracked in the threat model.
 - Clean-machine tests cover conversion/export plus install, upgrade, uninstall,
   cancellation, offline operation, and user-data preservation.
 - CI blocks publication on a missing artifact, version mismatch, failed test,

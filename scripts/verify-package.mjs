@@ -19,8 +19,6 @@ const requiredFiles = new Set([
   'THIRD_PARTY_NOTICES.md',
   'CHANGELOG.md',
   'SECURITY.md',
-  'SHIP_READINESS_PLAN.md',
-  'SHIP_READINESS_REPORT.md',
   'dist/core/index.js',
   'dist/core/index.d.ts',
   'dist/cli/meshshift.mjs',
