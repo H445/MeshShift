@@ -48,7 +48,27 @@ if (actual !== expected) throw new Error(`Node runtime checksum mismatch for ${a
 
 const extractDir = resolve(output, 'extracted');
 await mkdir(extractDir, { recursive: true });
-await execFileAsync('tar', ['-xf', archivePath, '-C', extractDir], { cwd: root });
+if (extension === 'zip' && process.platform === 'win32') {
+  await execFileAsync(
+    'powershell.exe',
+    [
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      'Expand-Archive -LiteralPath $env:MESHSHIFT_ARCHIVE_PATH -DestinationPath $env:MESHSHIFT_EXTRACT_DIR -Force',
+    ],
+    {
+      cwd: root,
+      env: {
+        ...process.env,
+        MESHSHIFT_ARCHIVE_PATH: archivePath,
+        MESHSHIFT_EXTRACT_DIR: extractDir,
+      },
+    },
+  );
+} else {
+  await execFileAsync('tar', ['-xf', archivePath, '-C', extractDir], { cwd: root });
+}
 const runtimeRoot = resolve(extractDir, folder);
 await writeFile(
   resolve(output, 'runtime-metadata.json'),
