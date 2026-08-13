@@ -226,8 +226,7 @@ jobs:
           done < <(
             gh pr list \
               --repo "$GITHUB_REPOSITORY" \
-              --state open \
-              --author app/dependabot \
+              --search "is:open is:pr author:app/dependabot" \
               --limit 1000 \
               --json number,headRefName \
               --jq '.[] | [.number, .headRefName] | @tsv'
