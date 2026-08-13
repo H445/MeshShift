@@ -1,14 +1,19 @@
-# MeshShift: initial walkthrough
+# Using MeshShift
 
-This walkthrough covers the first browser workflow: open a model, set LOD triangle targets, generate an optimized preview, pin important vertices, and export the result.
+This walkthrough covers the desktop application workflow: open a model, set LOD
+triangle targets, generate an optimized preview, pin important vertices, and
+export the result. The same interface is available in the local web app for
+developers.
 
 ## Before you start
 
-1. Install dependencies with `pnpm install`.
-2. Start MeshShift from the repository root with `pnpm dev` or `.\start.ps1`.
-3. Open `http://localhost:5173/`.
+Download and install the latest desktop build from
+[GitHub Releases](https://github.com/H445/MeshShift/releases/latest), then open
+MeshShift. No separate runtime or server is required.
 
-MeshShift keeps the workflow local. Browser exports are written under the repository's `exports/` directory. In the desktop app, use Settings → Export location to choose a folder; the default is an `exports` folder beside the installed app when the platform allows writing there.
+MeshShift keeps the workflow local. Use **Settings → Export location** to see or
+change where converted files are written. The default is an `exports` folder
+beside the installed app when the platform allows writing there.
 
 ## 1. Open a model
 

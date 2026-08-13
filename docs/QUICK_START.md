@@ -1,80 +1,69 @@
-# Quick start
+# Quick start for users
 
-MeshShift requires Node.js 22 or newer and pnpm 10.30.1. Install pnpm
-globally if it is not already available:
+## 1. Download and install
 
-```bash
-npm install --global pnpm@10.30.1
-```
+Download the latest release from
+[GitHub Releases](https://github.com/H445/MeshShift/releases/latest).
 
-Install dependencies once:
+- **Windows:** run the `.exe` installer.
+- **macOS:** open the `.dmg`, then drag MeshShift to Applications. Choose the
+  `arm64` build for Apple Silicon Macs and `x64` for Intel Macs.
+- **Linux:** download the `.AppImage`, make it executable, and launch it. For
+  example:
 
-```bash
-pnpm install
-```
+  ```sh
+  chmod +x MeshShift-*-linux-x86_64.AppImage
+  ./MeshShift-*-linux-x86_64.AppImage
+  ```
 
-Launch MeshShift from the repository root.
+The desktop release includes the runtime it needs. You do not need to install
+Node.js, pnpm, or a separate server.
 
-Linux/macOS:
+## 2. Convert a model
 
-```sh
-sh ./start.sh
-```
+1. Open MeshShift.
+2. Click **Choose files** and select your model.
+3. For glTF or OBJ assets, select their companion `.bin`, `.mtl`, and texture
+   files in the same file selection.
+4. Choose an output format in **Settings**. FBX is selected by default.
+5. Click **Convert all**.
 
-Windows PowerShell:
+The converted model appears in the Output viewer and the queue shows **Done**.
+Use **Save again** if you want to repeat the export after changing a setting.
 
-```powershell
-.\start.ps1
-```
+## 3. Find your exported files
 
-Both launchers start the local Vite development server at
-`http://localhost:5173/`. Additional Vite options are forwarded unchanged:
+Open **Settings → Export location** to see the exact active folder.
 
-```sh
-sh ./start.sh --port 5180 --host 0.0.0.0 --open
-```
+By default, MeshShift uses an `exports` folder beside the installed
+application. If the operating system prevents writing beside the application,
+MeshShift uses a writable documents fallback and shows that location in
+Settings. Click **Browse…** to choose another folder, or **Use default** to
+restore the default behavior.
 
-```powershell
-.\start.ps1 --port 5180 --host 0.0.0.0 --open
-```
+Batch conversions place each model in its own subfolder so companion files do
+not overwrite one another.
 
-`pnpm dev` remains available as a package-manager alias for the same shared
-launcher.
+## 4. Create lower-detail versions
 
-Build every release surface:
+Open **Profiles** and set **Generate LODs** to the number of additional levels
+you want. Leave a triangle target at `0` to let MeshShift choose a
+quality-focused target automatically. Generate the optimized preview before
+converting if you want to inspect the result first.
 
-```bash
-pnpm build
-```
+For detail-sensitive areas, use **Edit detail pins** in the Output viewer to
+preserve important vertices through deeper LOD levels. See the
+[full walkthrough](HOW_TO_USE.md) for screenshots and examples.
 
-The reusable Node API is written to `dist/core/`, the CLI bundle is
-`dist/cli/meshshift.mjs`, and the production web app is written to
-`dist/client/`. Use `pnpm preview` when testing the production build locally
-so the `exports/` writer remains available.
+## Troubleshooting
 
-For the Electron desktop development build, run:
+- If macOS blocks the first launch, open **System Settings → Privacy & Security**
+  and allow MeshShift to open.
+- If Linux does not launch the AppImage, confirm it is executable and that FUSE
+  support is available on your distribution.
+- If an export fails, open Settings and choose a folder where your user account
+  has write permission.
+- The release page includes `SHA256SUMS.txt` for verifying downloaded files.
 
-```bash
-pnpm desktop:dev
-```
-
-The packaged desktop application uses Electron's embedded runtime. Published
-desktop builds save converted files to the folder shown under Settings → Export
-location. The default is an `exports/` folder beside the installed app when
-that location is writable; otherwise MeshShift uses a writable documents
-fallback. The folder can be changed with Browse… and remembered for future
-conversions.
-
-## Export destination
-
-The web app automatically saves every successful conversion directly under
-the repository’s `exports/` directory instead of using the browser Downloads
-folder. A single conversion writes its output and companion files at the root
-of `exports/`. A batch conversion groups each converted asset into its own
-subdirectory to prevent companion-file name collisions. The **Save again**
-controls retry the write or overwrite existing files.
-
-The local writer accepts only relative paths beneath `exports/`, rejects
-traversal and unsafe path segments, and overwrites an older file with the same
-path. Generated files are ignored by Git; `exports/.gitkeep` retains the empty
-directory in a checkout.
+Developers who want to run from source should use the
+[Developer guide](DEVELOPER.md), not this user quick start.
