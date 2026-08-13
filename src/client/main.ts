@@ -1843,7 +1843,7 @@ async function convertTargets(requestedId?: string) {
     let savedExports: SavedExport[] = [];
     let saveError: Error | undefined;
     if (succeededTargets.length > 0) {
-      updateOutputLoading(request, 0.985, 'Saving converted files to exports/…');
+      updateOutputLoading(request, 0.985, 'Saving converted files…');
       await nextPaint();
       try {
         savedExports = await saveResultsToExports(succeededTargets.map((row) => row.result!));
@@ -1863,7 +1863,7 @@ async function convertTargets(requestedId?: string) {
         updateOutputLoading(
           request,
           1,
-          saveError ? 'Conversion complete · save failed' : 'Conversion saved to exports/',
+          saveError ? 'Conversion complete · save failed' : 'Conversion saved',
         );
         await nextPaint();
       } catch (error) {
@@ -1909,7 +1909,9 @@ function syncSaveAllVisibility(): void {
 }
 
 function savedExportMessage(saved: SavedExport[]): string {
-  return saved.length === 1 ? `Saved ${saved[0].path}` : `Saved ${saved.length} files to exports/`;
+  if (saved.length === 1) return `Saved ${saved[0].path}`;
+  const directory = saved[0].path.replace(/[\\/][^\\/]*$/, '');
+  return `Saved ${saved.length} files under ${directory}`;
 }
 
 async function saveAll() {

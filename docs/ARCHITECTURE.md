@@ -14,7 +14,7 @@ renderer bundle:
 ```text
 Electron main process ── meshshift://app ── packaged Vite renderer + workers
           │
-          └─ validated IPC save request ── Documents/MeshShift/exports/
+          └─ validated IPC save request ── configured desktop export folder
 ```
 
 The renderer has context isolation, no Node integration, and a sandbox. The
@@ -24,7 +24,7 @@ only the embedded renderer through the registered `meshshift://app` protocol.
 
 All import paths are normalized through Assimp. The browser previews every
 supported source and result by generating a temporary GLB and loading it with
-three.js. Multi-file outputs retain their companion files in `exports/`.
+three.js. Multi-file outputs retain their companion files in the configured export folder.
 
 ## Large-model preview loading
 

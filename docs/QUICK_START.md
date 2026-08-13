@@ -59,8 +59,11 @@ pnpm desktop:dev
 ```
 
 The packaged desktop application uses Electron's embedded runtime. Published
-portable CLI archives include their own supported Node.js runtime and do not
-require Node.js to be installed separately.
+desktop builds save converted files to the folder shown under Profiles → Export
+location. The default is an `exports/` folder beside the installed app when
+that location is writable; otherwise MeshShift uses a writable documents
+fallback. The folder can be changed with Browse… and remembered for future
+conversions.
 
 ## Export destination
 

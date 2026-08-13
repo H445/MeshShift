@@ -8,7 +8,7 @@ This walkthrough covers the first browser workflow: open a model, set LOD triang
 2. Start MeshShift from the repository root with `pnpm dev` or `.\start.ps1`.
 3. Open `http://localhost:5173/`.
 
-MeshShift keeps the workflow local. Browser exports are written under the repository's `exports/` directory.
+MeshShift keeps the workflow local. Browser exports are written under the repository's `exports/` directory. In the desktop app, use Profiles → Export location to choose a folder; the default is an `exports` folder beside the installed app when the platform allows writing there.
 
 ## 1. Open a model
 
@@ -63,7 +63,7 @@ If you change a pin after preview generation, exit pin-edit mode and click **Reg
 
 Choose the output format in **Settings** if you do not want the default FBX export. Confirm the LOD save checkboxes, then click **Convert all** or the row's **Convert** button.
 
-When the conversion completes, the queue shows **Done** and a **Save again** control. The browser writer saves the output beneath `exports/`; this example produces `exports/potion.fbx`.
+When the conversion completes, the queue shows **Done** and a **Save again** control. The writer saves to the configured export folder and reports the full saved path; in the browser this example produces `exports/potion.fbx`.
 
 ![Completed FBX export with the saved output path](images/meshshift-07-export-complete.png)
 

@@ -1277,6 +1277,31 @@ body {
   gap: 12px;
   font-size: 13px;
 }
+.setting-stack {
+  align-items: stretch;
+  flex-direction: column;
+  gap: 6px;
+}
+.setting input[type='text'] {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  color: var(--fg-0);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  font: inherit;
+  text-align: left;
+}
+.setting-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.setting-actions .btn {
+  min-height: 30px;
+  padding: 5px 10px;
+}
 .setting input[type='number'],
 .setting select {
   background: var(--bg-2);

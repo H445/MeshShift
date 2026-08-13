@@ -1,12 +1,16 @@
-import { app, BrowserWindow, ipcMain, protocol, session } from 'electron';
-import { readFile, stat } from 'node:fs/promises';
-import { extname, relative, resolve, sep } from 'node:path';
+import { app, BrowserWindow, dialog, ipcMain, protocol, session } from 'electron';
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { extname, isAbsolute, relative, resolve, sep, dirname } from 'node:path';
 import { DEFAULT_MAX_EXPORT_BYTES, writeExportFile } from '../server/exportServer.js';
 
 const DESKTOP_SCHEME = 'meshshift';
 const DESKTOP_HOST = 'app';
 const EXPORT_CHANNEL = 'meshshift:save-export';
+const GET_EXPORT_DIRECTORY_CHANNEL = 'meshshift:get-export-directory';
+const CHOOSE_EXPORT_DIRECTORY_CHANNEL = 'meshshift:choose-export-directory';
+const SET_EXPORT_DIRECTORY_CHANNEL = 'meshshift:set-export-directory';
 const MAX_EXPORT_BYTES = DEFAULT_MAX_EXPORT_BYTES;
+const EXPORT_SETTINGS_FILE = 'export-settings.json';
 const CSP = [
   "default-src 'self'",
   "base-uri 'none'",
@@ -31,6 +35,16 @@ interface SaveExportRequest {
 interface SaveExportResponse {
   bytes: number;
   path: string;
+}
+
+interface ExportDirectoryResponse {
+  path: string;
+  defaultPath: string;
+  isDefault: boolean;
+}
+
+interface StoredExportSettings {
+  exportDirectory?: unknown;
 }
 
 let mainWindow: BrowserWindow | null = null;
@@ -132,8 +146,104 @@ function assertTrustedSender(event: { senderFrame: { url: string } | null }): vo
   }
 }
 
-function exportRoot(): string {
-  return resolve(app.getPath('documents'), 'MeshShift');
+function installRoot(): string {
+  if (!app.isPackaged) return app.getAppPath();
+  if (process.env.APPIMAGE) return dirname(process.env.APPIMAGE);
+  return resolve(app.getAppPath(), '..', '..');
+}
+
+function defaultExportRoot(): string {
+  return resolve(installRoot(), 'exports');
+}
+
+function fallbackExportRoot(): string {
+  return resolve(app.getPath('documents'), 'MeshShift', 'exports');
+}
+
+function exportSettingsPath(): string {
+  return resolve(app.getPath('userData'), EXPORT_SETTINGS_FILE);
+}
+
+function validateExportDirectory(value: unknown): string | null {
+  if (value === null || value === undefined || value === '') return null;
+  if (typeof value !== 'string' || value.length > 4096 || !isAbsolute(value)) {
+    throw new Error('Export directory must be an absolute path.');
+  }
+  return resolve(value);
+}
+
+let storedExportDirectory: string | null | undefined;
+
+async function loadStoredExportDirectory(): Promise<string | null> {
+  if (storedExportDirectory !== undefined) return storedExportDirectory;
+  try {
+    const raw = JSON.parse(await readFile(exportSettingsPath(), 'utf8')) as StoredExportSettings;
+    storedExportDirectory = validateExportDirectory(raw.exportDirectory);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      storedExportDirectory = null;
+    } else if (error instanceof SyntaxError) {
+      storedExportDirectory = null;
+    } else {
+      throw error;
+    }
+  }
+  return storedExportDirectory;
+}
+
+async function ensureDirectory(path: string): Promise<void> {
+  await mkdir(path, { recursive: true });
+  const info = await stat(path);
+  if (!info.isDirectory()) throw new Error('The configured export path is not a directory.');
+}
+
+async function activeExportDirectory(): Promise<{ path: string; isDefault: boolean }> {
+  const configured = await loadStoredExportDirectory();
+  if (configured) {
+    await ensureDirectory(configured);
+    return { path: configured, isDefault: false };
+  }
+
+  const preferred = defaultExportRoot();
+  try {
+    await ensureDirectory(preferred);
+    return { path: preferred, isDefault: true };
+  } catch (error) {
+    const fallback = fallbackExportRoot();
+    try {
+      await ensureDirectory(fallback);
+      console.warn(
+        `MeshShift could not write to the install directory (${preferred}); using ${fallback}.`,
+      );
+      return { path: fallback, isDefault: true };
+    } catch {
+      throw error;
+    }
+  }
+}
+
+async function exportDirectoryResponse(): Promise<ExportDirectoryResponse> {
+  const active = await activeExportDirectory();
+  return { path: active.path, defaultPath: defaultExportRoot(), isDefault: active.isDefault };
+}
+
+async function setExportDirectory(value: unknown): Promise<ExportDirectoryResponse> {
+  const directory = validateExportDirectory(value);
+  if (directory) await ensureDirectory(directory);
+  await mkdir(app.getPath('userData'), { recursive: true });
+  await writeFile(exportSettingsPath(), JSON.stringify({ exportDirectory: directory }, null, 2));
+  storedExportDirectory = directory;
+  return exportDirectoryResponse();
+}
+
+async function chooseExportDirectory(event: {
+  senderFrame: { url: string } | null;
+}): Promise<string | null> {
+  assertTrustedSender(event);
+  const result = await dialog.showOpenDialog({
+    properties: ['openDirectory', 'createDirectory'],
+  });
+  return result.canceled ? null : (result.filePaths[0] ?? null);
 }
 
 function asBytes(value: unknown): Uint8Array {
@@ -159,15 +269,16 @@ async function saveExport(
   if (data.byteLength > MAX_EXPORT_BYTES) {
     throw new Error(`Export exceeds the ${Math.floor(MAX_EXPORT_BYTES / 1024 / 1024)} MB limit.`);
   }
+  const exportDirectory = await activeExportDirectory();
   const saved = await writeExportFile(
-    exportRoot(),
+    exportDirectory.path,
     path,
     (async function* () {
       yield data;
     })(),
     MAX_EXPORT_BYTES,
   );
-  return { bytes: saved.bytes, path: `exports/${saved.relativePath}` };
+  return { bytes: saved.bytes, path: resolve(exportDirectory.path, saved.relativePath) };
 }
 
 function wireSecurity(): void {
@@ -214,6 +325,15 @@ function createWindow(): void {
 }
 
 function registerIpc(): void {
+  ipcMain.handle(GET_EXPORT_DIRECTORY_CHANNEL, (event) => {
+    assertTrustedSender(event);
+    return exportDirectoryResponse();
+  });
+  ipcMain.handle(CHOOSE_EXPORT_DIRECTORY_CHANNEL, (event) => chooseExportDirectory(event));
+  ipcMain.handle(SET_EXPORT_DIRECTORY_CHANNEL, (event, value: unknown) => {
+    assertTrustedSender(event);
+    return setExportDirectory(value);
+  });
   ipcMain.handle(EXPORT_CHANNEL, (event, request: unknown) =>
     saveExport(event, (request ?? {}) as SaveExportRequest),
   );

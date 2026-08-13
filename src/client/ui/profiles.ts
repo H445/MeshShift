@@ -21,6 +21,10 @@ export function createProfiles(): ProfilesHandle {
   const maxTrisEl = document.getElementById('profile-max-tris') as HTMLInputElement;
   const mergeEl = document.getElementById('profile-merge') as HTMLInputElement;
   const lodsEl = document.getElementById('profile-lods') as HTMLSelectElement;
+  const exportPathEl = document.getElementById('profile-export-path') as HTMLInputElement;
+  const exportBrowseBtn = document.getElementById('profile-export-browse') as HTMLButtonElement;
+  const exportDefaultBtn = document.getElementById('profile-export-default') as HTMLButtonElement;
+  const exportStatusEl = document.getElementById('profile-export-status') as HTMLElement;
   const lodTargetEls = Array.from(
     { length: 4 },
     (_, index) => document.getElementById(`profile-lod-target-${index + 1}`) as HTMLInputElement,
@@ -100,6 +104,67 @@ export function createProfiles(): ProfilesHandle {
     for (const handler of changeHandlers) handler(options);
   }
 
+  function updateExportLocation(path: string, isDefault: boolean): void {
+    exportPathEl.value = path;
+    exportPathEl.title = path;
+    exportStatusEl.textContent = isDefault
+      ? 'Default location: exports beside the installed app when the platform permits writing there.'
+      : 'Custom export location.';
+  }
+
+  function applyExportLocation(location: { path: string; isDefault: boolean }): void {
+    updateExportLocation(location.path, location.isDefault);
+  }
+
+  async function loadExportLocation(): Promise<void> {
+    const desktop = window.meshshiftDesktop;
+    if (!desktop) {
+      exportPathEl.value = 'exports/ (project folder)';
+      exportPathEl.title = exportPathEl.value;
+      exportPathEl.disabled = true;
+      exportBrowseBtn.disabled = true;
+      exportDefaultBtn.disabled = true;
+      exportStatusEl.textContent = 'Desktop folder selection is available in the installed app.';
+      return;
+    }
+    try {
+      applyExportLocation(await desktop.getExportDirectory());
+    } catch (error) {
+      exportStatusEl.textContent = `Could not read export location: ${String(error)}`;
+    }
+  }
+
+  async function chooseExportLocation(): Promise<void> {
+    const desktop = window.meshshiftDesktop;
+    if (!desktop) return;
+    exportBrowseBtn.disabled = true;
+    exportDefaultBtn.disabled = true;
+    try {
+      const selected = await desktop.chooseExportDirectory();
+      if (selected) applyExportLocation(await desktop.setExportDirectory(selected));
+    } catch (error) {
+      exportStatusEl.textContent = `Could not set export location: ${String(error)}`;
+    } finally {
+      exportBrowseBtn.disabled = false;
+      exportDefaultBtn.disabled = false;
+    }
+  }
+
+  async function useDefaultExportLocation(): Promise<void> {
+    const desktop = window.meshshiftDesktop;
+    if (!desktop) return;
+    exportBrowseBtn.disabled = true;
+    exportDefaultBtn.disabled = true;
+    try {
+      applyExportLocation(await desktop.setExportDirectory(null));
+    } catch (error) {
+      exportStatusEl.textContent = `Could not reset export location: ${String(error)}`;
+    } finally {
+      exportBrowseBtn.disabled = false;
+      exportDefaultBtn.disabled = false;
+    }
+  }
+
   function updateTargetPlaceholders(): void {
     const ratios = DEFAULT_LOD_TRIANGLE_RATIOS;
     lodTargetEls.forEach((input, index) => {
@@ -109,6 +174,7 @@ export function createProfiles(): ProfilesHandle {
 
   restorePersistedProfile();
   updateTargetPlaceholders();
+  void loadExportLocation();
 
   const controls: Array<HTMLInputElement | HTMLSelectElement> = [
     maxTrisEl,
@@ -121,6 +187,8 @@ export function createProfiles(): ProfilesHandle {
   }
   maxTrisEl.addEventListener('input', emitChange);
   for (const input of lodTargetEls) input.addEventListener('input', emitChange);
+  exportBrowseBtn.addEventListener('click', chooseExportLocation);
+  exportDefaultBtn.addEventListener('click', useDefaultExportLocation);
 
   function focusableElements(): HTMLElement[] {
     return Array.from(
@@ -178,6 +246,8 @@ export function createProfiles(): ProfilesHandle {
       for (const control of controls) control.removeEventListener('change', emitChange);
       maxTrisEl.removeEventListener('input', emitChange);
       for (const input of lodTargetEls) input.removeEventListener('input', emitChange);
+      exportBrowseBtn.removeEventListener('click', chooseExportLocation);
+      exportDefaultBtn.removeEventListener('click', useDefaultExportLocation);
       openBtn.removeEventListener('click', togglePanel);
       closeBtn.removeEventListener('click', close);
       window.removeEventListener('keydown', onKeydown);

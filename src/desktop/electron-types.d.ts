@@ -14,6 +14,12 @@ declare module 'electron' {
     getPath(name: string): string;
   };
 
+  export const dialog: {
+    showOpenDialog(options: {
+      properties: Array<'openDirectory' | 'createDirectory'>;
+    }): Promise<{ canceled: boolean; filePaths: string[] }>;
+  };
+
   export class BrowserWindow {
     constructor(options: Record<string, unknown>);
     loadURL(url: string): Promise<void>;
