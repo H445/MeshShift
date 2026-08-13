@@ -1,3 +1,3 @@
-Place the production Linux icon set here before publishing signed artifacts.
-electron-builder accepts PNG icons in standard sizes such as 16x16, 32x32,
-48x48, 64x64, 128x128, and 256x256.
+`meshshift-512.png` is the shared source icon used by electron-builder for the
+Windows, macOS, and Linux packages. Keep it at least 512x512 when replacing
+the artwork; electron-builder derives the platform-specific icon resources.

@@ -1,6 +1,6 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   decodeLocalReference,
@@ -30,7 +30,7 @@ describe('CLI companion path safety', () => {
     ).toBeUndefined();
     expect(
       resolveCompanionReference('G:/assets', 'G:/assets/models/scene.gltf', 'textures/diffuse.png'),
-    ).toBe('G:\\assets\\models\\textures\\diffuse.png');
+    ).toBe(resolve('G:/assets/models/textures/diffuse.png'));
   });
 
   it('loads only existing local companions and skips remote or malformed references', async () => {

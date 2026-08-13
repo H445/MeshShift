@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { resolveOutputPath, writeOutputFile } from '../src/cli/outputFiles.js';
 
 describe('CLI output path safety', () => {
@@ -14,7 +14,7 @@ describe('CLI output path safety', () => {
 
   it('resolves nested output files inside the output root', () => {
     expect(resolveOutputPath('G:/exports', 'asset/model.fbx')).toBe(
-      'G:\\exports\\asset\\model.fbx',
+      resolve('G:/exports/asset/model.fbx'),
     );
   });
 
