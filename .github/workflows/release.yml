@@ -150,9 +150,7 @@ jobs:
     name: Aggregate, attest, and publish
     needs: build
     if: >-
-      (github.event_name == 'push' &&
-      vars.MESHSHIFT_SIGNING_READY == 'true' &&
-      vars.MESHSHIFT_NOTARIZATION_READY == 'true') ||
+      github.event_name == 'push' ||
       (github.event_name == 'workflow_dispatch' && inputs.prerelease == true)
     runs-on: ubuntu-22.04
     environment: release
@@ -181,13 +179,17 @@ jobs:
         run: |
           test "$(find artifacts/release-assets -maxdepth 1 -type f | wc -l)" -ge 7
           ! find artifacts/release-assets -maxdepth 1 -type f -name 'latest*.yml' | grep .
-      - name: Create or update draft GitHub Release
+      - name: Create published GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           VERSION=$(node -p "require('./package.json').version")
           PRERELEASE_FLAG=''
-          if [ "${{ github.event_name }}" = 'workflow_dispatch' ]; then PRERELEASE_FLAG='--prerelease'; fi
-          gh release create "v${VERSION}" --draft --title "MeshShift ${VERSION}" \
+          if [ "${{ github.event_name }}" = 'workflow_dispatch' ] || \
+             [ "${{ vars.MESHSHIFT_SIGNING_READY }}" != 'true' ] || \
+             [ "${{ vars.MESHSHIFT_NOTARIZATION_READY }}" != 'true' ]; then
+            PRERELEASE_FLAG='--prerelease'
+          fi
+          gh release create "v${VERSION}" --title "MeshShift ${VERSION}" \
             --generate-notes ${PRERELEASE_FLAG} artifacts/release-assets/*
