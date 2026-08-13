@@ -168,6 +168,16 @@ jobs:
           pattern: release-*
           path: artifacts/release-assets
           merge-multiple: true
+      - name: Normalize release asset set
+        shell: bash
+        run: |
+          find artifacts/release-assets -type f \( \
+            -name '*.AppImage' -o \
+            -name '*.dmg' -o \
+            -name '*.exe' -o \
+            -name '*.tar.gz' -o \
+            -name '*.zip' \
+          \) -exec cp -f {} artifacts/release-assets/ \;
       - name: Generate release checksums
         run: node scripts/make-checksums.mjs --dir artifacts/release-assets
       - name: Generate artifact provenance
