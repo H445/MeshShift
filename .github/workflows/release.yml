@@ -200,3 +200,35 @@ jobs:
             gh release create "v${VERSION}" --title "MeshShift ${VERSION}" \
               --generate-notes ${PRERELEASE_FLAG} "${RELEASE_FILES[@]}"
           fi
+
+  cleanup-dependabot:
+    name: Clean up Dependabot pull requests
+    needs: publish
+    if: needs.publish.result == 'success'
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Close Dependabot pull requests and delete branches
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          while IFS=$'\t' read -r number branch; do
+            [ -n "$number" ] || continue
+            echo "Closing Dependabot PR #$number ($branch) after successful release $VERSION"
+            gh pr close "$number" \
+              --repo "$GITHUB_REPOSITORY" \
+              --comment "Closed automatically after successful release build $VERSION. Dependabot can recreate this update during its next scheduled scan." \
+              --delete-branch
+          done < <(
+            gh pr list \
+              --repo "$GITHUB_REPOSITORY" \
+              --state open \
+              --author app/dependabot \
+              --limit 1000 \
+              --json number,headRefName \
+              --jq '.[] | [.number, .headRefName] | @tsv'
+          )
