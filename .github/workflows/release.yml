@@ -201,5 +201,12 @@ jobs:
              [ "${{ vars.MESHSHIFT_NOTARIZATION_READY }}" != 'true' ]; then
             PRERELEASE_FLAG='--prerelease'
           fi
-          gh release create "v${VERSION}" --title "MeshShift ${VERSION}" \
-            --generate-notes ${PRERELEASE_FLAG} artifacts/release-assets/*
+          mapfile -d '' RELEASE_FILES < <(
+            find artifacts/release-assets -maxdepth 1 -type f -print0
+          )
+          if gh release view "v${VERSION}" >/dev/null 2>&1; then
+            gh release upload "v${VERSION}" --clobber "${RELEASE_FILES[@]}"
+          else
+            gh release create "v${VERSION}" --title "MeshShift ${VERSION}" \
+              --generate-notes ${PRERELEASE_FLAG} "${RELEASE_FILES[@]}"
+          fi
