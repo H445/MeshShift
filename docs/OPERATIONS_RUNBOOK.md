@@ -40,19 +40,17 @@ named individual or team and include the approval timestamp.
 ## Desktop release procedure
 
 For a tagged desktop release, the GitHub Actions workflow builds on native
-Windows, Linux, and macOS runners. It produces the Windows installer and
-portable executable, macOS DMGs, Linux AppImages, and portable CLI archives.
-The build matrix runs `pnpm run desktop:verify` before packaging and bundles an
-official Node.js runtime into each portable CLI archive. The publish job adds
-`SHA256SUMS.txt` and GitHub artifact provenance before creating a draft release.
+Windows, Linux, and macOS runners. It publishes only the Windows installer,
+macOS DMGs, Linux AppImage and tarball, plus `SHA256SUMS.txt`. CLI archives are
+intentionally not release assets; users who need the CLI can build the project
+locally. The build matrix runs `pnpm run desktop:verify` before packaging and
+the publish job adds GitHub artifact provenance.
 
-Production tags must have the protected signing/notarization readiness
-variables enabled and the corresponding repository secrets configured. Manual
-workflow dispatch is reserved for explicitly labeled unsigned internal
-prereleases. Do not promote an unsigned or unnotarized artifact to the public
-release channel. If a signing service or Apple notarization is unavailable,
-leave the release as a draft and rerun the workflow after the protected
-settings are restored.
+Production tags should have the protected signing/notarization readiness
+variables enabled and the corresponding repository secrets configured. Until
+then, the workflow labels the release as a prerelease. Manual workflow dispatch
+is reserved for explicitly labeled unsigned internal prereleases. Do not
+promote an unsigned or unnotarized artifact to the public release channel.
 
 Before approving a desktop release, install each native artifact on a clean
 machine or VM, launch the app offline, import a representative fixture, export
