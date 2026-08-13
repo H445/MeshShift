@@ -60,6 +60,16 @@ and reproject textures onto generated UV layouts.
 Start with the [Developer guide](docs/DEVELOPER.md). It links to local setup,
 CLI/API, architecture, testing, release, security, and operational documents.
 
+## Community
+
+Connect with the MeshShift community and follow project updates:
+
+[![Discord](https://img.shields.io/badge/Discord-5865F2?logo=discord&logoColor=white)](https://discord.gg/qdHUAdSEfp)
+[![DEV Community](https://img.shields.io/badge/DEV_Community-0A0A0A?logo=dev.to&logoColor=white)](https://dev.to/meshshift)
+[![YouTube](https://img.shields.io/badge/YouTube-FF0000?logo=youtube&logoColor=white)](https://www.youtube.com/@meshshift3d)
+[![Instagram](https://img.shields.io/badge/Instagram-E4405F?logo=instagram&logoColor=white)](https://www.instagram.com/meshshift/)
+[![X](https://img.shields.io/badge/X-000000?logo=x&logoColor=white)](https://x.com/meshshift3d)
+
 ## License
 
 MeshShift is MIT licensed. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
