@@ -74,7 +74,9 @@ jobs:
         shell: bash
         run: |
           VERSION=$(node -p "require('./package.json').version")
-          test "v${VERSION}" = "${GITHUB_REF_NAME}"
+          if [ "${{ github.event_name }}" = "push" ]; then
+            test "v${VERSION}" = "${GITHUB_REF_NAME}"
+          fi
       - name: Build desktop app
         run: pnpm run desktop:build
       - name: Verify desktop inputs
