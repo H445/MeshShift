@@ -2,7 +2,7 @@
 import { execFile } from 'node:child_process';
 import { mkdir, rm } from 'node:fs/promises';
 import { promisify } from 'node:util';
-import { dirname, resolve } from 'node:path';
+import { dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const execFileAsync = promisify(execFile);
@@ -17,6 +17,7 @@ const output = resolve(option('--output', resolve(root, 'artifacts', 'meshshift-
 await mkdir(dirname(output), { recursive: true });
 await rm(output, { force: true });
 const archiveFormat = output.toLowerCase().endsWith('.zip') ? 'zip' : 'tar.gz';
-const args = archiveFormat === 'zip' ? ['-a', '-c', '-f', output, '.'] : ['-czf', output, '.'];
+const archivePath = process.platform === 'win32' ? relative(input, output) : output;
+const args = archiveFormat === 'zip' ? ['-a', '-c', '-f', archivePath, '.'] : ['-czf', output, '.'];
 await execFileAsync('tar', args, { cwd: input });
 console.log(`Wrote ${output}.`);
