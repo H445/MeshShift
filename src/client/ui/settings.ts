@@ -20,6 +20,10 @@ export function createSettings(): SettingsHandle {
   const closeBtn = document.getElementById('settings-close-btn') as HTMLButtonElement;
   const formatEl = document.getElementById('opt-format') as HTMLSelectElement;
   const maxTexEl = document.getElementById('opt-max-tex') as HTMLSelectElement;
+  const exportPathEl = document.getElementById('settings-export-path') as HTMLInputElement;
+  const exportBrowseBtn = document.getElementById('settings-export-browse') as HTMLButtonElement;
+  const exportDefaultBtn = document.getElementById('settings-export-default') as HTMLButtonElement;
+  const exportStatusEl = document.getElementById('settings-export-status') as HTMLElement;
   panel.setAttribute('role', 'dialog');
   panel.setAttribute('aria-modal', 'true');
   panel.setAttribute('aria-labelledby', 'settings-title');
@@ -71,10 +75,75 @@ export function createSettings(): SettingsHandle {
     }
   }
 
+  function updateExportLocation(path: string, isDefault: boolean): void {
+    exportPathEl.value = path;
+    exportPathEl.title = path;
+    exportStatusEl.textContent = isDefault
+      ? 'Default location: exports beside the installed app when the platform permits writing there.'
+      : 'Custom export location.';
+  }
+
+  async function loadExportLocation(): Promise<void> {
+    const desktop = window.meshshiftDesktop;
+    if (!desktop) {
+      exportPathEl.value = 'exports/ (project folder)';
+      exportPathEl.title = exportPathEl.value;
+      exportPathEl.disabled = true;
+      exportBrowseBtn.disabled = true;
+      exportDefaultBtn.disabled = true;
+      exportStatusEl.textContent = 'Desktop folder selection is available in the installed app.';
+      return;
+    }
+    try {
+      const location = await desktop.getExportDirectory();
+      updateExportLocation(location.path, location.isDefault);
+    } catch (error) {
+      exportStatusEl.textContent = `Could not read export location: ${String(error)}`;
+    }
+  }
+
+  async function chooseExportLocation(): Promise<void> {
+    const desktop = window.meshshiftDesktop;
+    if (!desktop) return;
+    exportBrowseBtn.disabled = true;
+    exportDefaultBtn.disabled = true;
+    try {
+      const selected = await desktop.chooseExportDirectory();
+      if (selected) {
+        const location = await desktop.setExportDirectory(selected);
+        updateExportLocation(location.path, location.isDefault);
+      }
+    } catch (error) {
+      exportStatusEl.textContent = `Could not set export location: ${String(error)}`;
+    } finally {
+      exportBrowseBtn.disabled = false;
+      exportDefaultBtn.disabled = false;
+    }
+  }
+
+  async function useDefaultExportLocation(): Promise<void> {
+    const desktop = window.meshshiftDesktop;
+    if (!desktop) return;
+    exportBrowseBtn.disabled = true;
+    exportDefaultBtn.disabled = true;
+    try {
+      const location = await desktop.setExportDirectory(null);
+      updateExportLocation(location.path, location.isDefault);
+    } catch (error) {
+      exportStatusEl.textContent = `Could not reset export location: ${String(error)}`;
+    } finally {
+      exportBrowseBtn.disabled = false;
+      exportDefaultBtn.disabled = false;
+    }
+  }
+
   restorePersistedSettings();
+  void loadExportLocation();
 
   const controls: Array<HTMLInputElement | HTMLSelectElement> = [formatEl, maxTexEl];
   for (const control of controls) control.addEventListener('change', persistSettings);
+  exportBrowseBtn.addEventListener('click', chooseExportLocation);
+  exportDefaultBtn.addEventListener('click', useDefaultExportLocation);
 
   function focusableElements(): HTMLElement[] {
     return Array.from(
@@ -125,6 +194,8 @@ export function createSettings(): SettingsHandle {
     read: readControls,
     destroy() {
       for (const control of controls) control.removeEventListener('change', persistSettings);
+      exportBrowseBtn.removeEventListener('click', chooseExportLocation);
+      exportDefaultBtn.removeEventListener('click', useDefaultExportLocation);
       openBtn.removeEventListener('click', togglePanel);
       closeBtn.removeEventListener('click', close);
       window.removeEventListener('keydown', onKeydown);

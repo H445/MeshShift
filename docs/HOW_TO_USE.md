@@ -8,7 +8,7 @@ This walkthrough covers the first browser workflow: open a model, set LOD triang
 2. Start MeshShift from the repository root with `pnpm dev` or `.\start.ps1`.
 3. Open `http://localhost:5173/`.
 
-MeshShift keeps the workflow local. Browser exports are written under the repository's `exports/` directory. In the desktop app, use Profiles → Export location to choose a folder; the default is an `exports` folder beside the installed app when the platform allows writing there.
+MeshShift keeps the workflow local. Browser exports are written under the repository's `exports/` directory. In the desktop app, use Settings → Export location to choose a folder; the default is an `exports` folder beside the installed app when the platform allows writing there.
 
 ## 1. Open a model
 

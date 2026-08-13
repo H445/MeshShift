@@ -567,6 +567,30 @@
         </header>
         <div class="settings-body">
           <div class="settings-section">
+            <div class="settings-section-title">Export location</div>
+            <label class="setting setting-stack">
+              <span>Save converted files to</span>
+              <input
+                type="text"
+                id="settings-export-path"
+                readonly
+                aria-describedby="settings-export-status"
+                value="Loading export location…"
+              />
+            </label>
+            <div class="setting-actions">
+              <button type="button" class="btn btn-secondary" id="settings-export-browse">
+                Browse…
+              </button>
+              <button type="button" class="btn btn-secondary" id="settings-export-default">
+                Use default
+              </button>
+            </div>
+            <small class="setting-help" id="settings-export-status"
+              >The default is an exports folder beside the installed app when writable.</small
+            >
+          </div>
+          <div class="settings-section">
             <div class="settings-section-title">Output</div>
             <label class="setting">
               <span>Format</span>
@@ -622,30 +646,6 @@
         </header>
         <div class="settings-body">
           <div class="settings-section">
-            <div class="settings-section-title">Export location</div>
-            <label class="setting setting-stack">
-              <span>Save converted files to</span>
-              <input
-                type="text"
-                id="profile-export-path"
-                readonly
-                aria-describedby="profile-export-status"
-                value="Loading export location…"
-              />
-            </label>
-            <div class="setting-actions">
-              <button type="button" class="btn btn-secondary" id="profile-export-browse">
-                Browse…
-              </button>
-              <button type="button" class="btn btn-secondary" id="profile-export-default">
-                Use default
-              </button>
-            </div>
-            <small class="setting-help" id="profile-export-status"
-              >The default is an exports folder beside the installed app when writable.</small
-            >
-          </div>
-          <div class="settings-section">
             <div class="settings-section-title">Mesh optimization</div>
             <label class="setting">
               <span>Triangle budget per mesh</span>
@@ -697,7 +697,7 @@
         <footer class="settings-footer">
           <small
             >Profile choices are saved automatically and apply to Generate optimized preview and
-            export. The export location is remembered for this desktop installation.</small
+            export.</small
           >
         </footer>
       </aside>
