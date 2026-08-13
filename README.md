@@ -69,6 +69,7 @@ Connect with the MeshShift community and follow project updates:
 [![YouTube](https://img.shields.io/badge/YouTube-FF0000?logo=youtube&logoColor=white)](https://www.youtube.com/@meshshift3d)
 [![Instagram](https://img.shields.io/badge/Instagram-E4405F?logo=instagram&logoColor=white)](https://www.instagram.com/meshshift/)
 [![X](https://img.shields.io/badge/X-000000?logo=x&logoColor=white)](https://x.com/meshshift3d)
+[![Medium](https://img.shields.io/badge/Medium-000000?logo=medium&logoColor=white)](https://medium.com/@meshshift)
 
 ## License
 
