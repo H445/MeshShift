@@ -113,14 +113,25 @@ jobs:
           mkdir -p artifacts/release-public
           case "${{ matrix.name }}" in
             win-x64) expected="artifacts/desktop/MeshShift-${VERSION}-win-x64.exe" ;;
-            linux-x64) expected="artifacts/desktop/MeshShift-${VERSION}-linux-x64.tar.gz" ;;
+            linux-x64)
+              expected="artifacts/desktop/MeshShift-${VERSION}-linux-x64.tar.gz"
+              expected_appimage="artifacts/desktop/MeshShift-${VERSION}-linux-x86_64.AppImage"
+              ;;
             macos-x64) expected="artifacts/desktop/MeshShift-${VERSION}-mac-x64.dmg" ;;
             macos-arm64) expected="artifacts/desktop/MeshShift-${VERSION}-mac-arm64.dmg" ;;
             *) echo "Unsupported release target: ${{ matrix.name }}" >&2; exit 1 ;;
           esac
           test -f "$expected"
           cp -- "$expected" artifacts/release-public/
-          test "$(find artifacts/release-public -maxdepth 1 -type f | wc -l)" -eq 1
+          if [ "${{ matrix.name }}" = "linux-x64" ]; then
+            test -f "$expected_appimage"
+            cp -- "$expected_appimage" artifacts/release-public/
+          fi
+          expected_count=1
+          if [ "${{ matrix.name }}" = "linux-x64" ]; then
+            expected_count=2
+          fi
+          test "$(find artifacts/release-public -maxdepth 1 -type f | wc -l)" -eq "$expected_count"
       - name: Upload platform artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
