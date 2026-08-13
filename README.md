@@ -17,7 +17,8 @@ Get the latest version from [GitHub Releases](https://github.com/H445/MeshShift/
 - **Linux:** download the `.AppImage`, make it executable if needed, and run it.
 
 The release page also includes SHA256 checksums. MeshShift runs offline after
-installation; your model files stay on your computer.
+installation; no model is uploaded to a remote service and your model files
+stay on your computer.
 
 ## Quick start
 
