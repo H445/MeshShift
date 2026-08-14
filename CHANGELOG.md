@@ -3,6 +3,14 @@
 All notable changes to MeshShift are documented here. The project follows
 Semantic Versioning for the public package and CLI.
 
+## [0.2.3] - 2026-08-14
+
+### Fixed
+
+- Restore embedded GLB, glTF, and FBX textures in packaged desktop preview
+  windows by allowing Three.js texture decoding from temporary data and blob
+  URLs.
+
 ## [0.2.0] - Release candidate
 
 ### Added

@@ -33,6 +33,9 @@ if (!main.includes('contextIsolation: true') || !main.includes('nodeIntegration:
 }
 if (!main.includes('Content-Security-Policy'))
   failures.push('desktop main is missing CSP response headers');
+if (!main.includes("connect-src 'self' data: blob:")) {
+  failures.push('desktop CSP blocks embedded model texture decoding');
+}
 if (!preload.includes('contextBridge.exposeInMainWorld'))
   failures.push('desktop preload bridge is missing');
 if (!client.includes('<title>MeshShift</title>'))

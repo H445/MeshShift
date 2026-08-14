@@ -2,6 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, protocol, session } from 'electron
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { extname, isAbsolute, relative, resolve, sep, dirname } from 'node:path';
 import { DEFAULT_MAX_EXPORT_BYTES, writeExportFile } from '../server/exportServer.js';
+import { DESKTOP_CONTENT_SECURITY_POLICY } from './contentSecurityPolicy.js';
 
 const DESKTOP_SCHEME = 'meshshift';
 const DESKTOP_HOST = 'app';
@@ -11,21 +12,6 @@ const CHOOSE_EXPORT_DIRECTORY_CHANNEL = 'meshshift:choose-export-directory';
 const SET_EXPORT_DIRECTORY_CHANNEL = 'meshshift:set-export-directory';
 const MAX_EXPORT_BYTES = DEFAULT_MAX_EXPORT_BYTES;
 const EXPORT_SETTINGS_FILE = 'export-settings.json';
-const CSP = [
-  "default-src 'self'",
-  "base-uri 'none'",
-  "object-src 'none'",
-  "frame-ancestors 'none'",
-  // Assimp's generated Emscripten bindings use Function constructors. The
-  // renderer still loads only packaged code; this is the narrow, documented
-  // exception required by the vendored runtime.
-  "script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval'",
-  "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
-  "font-src 'self' data:",
-  "connect-src 'self'",
-  "worker-src 'self' blob:",
-].join('; ');
 
 interface SaveExportRequest {
   path: unknown;
@@ -129,7 +115,7 @@ async function handleRendererRequest(request: Request): Promise<Response> {
     return new Response(body, {
       headers: {
         'Content-Type': mimeType(path),
-        'Content-Security-Policy': CSP,
+        'Content-Security-Policy': DESKTOP_CONTENT_SECURITY_POLICY,
         'Cache-Control': app.isPackaged ? 'public, max-age=31536000, immutable' : 'no-store',
         'X-Content-Type-Options': 'nosniff',
       },

@@ -1,6 +1,6 @@
 {
   "name": "meshshift",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Offline 3D asset conversion and optimization toolkit.",
   "license": "MIT",
   "type": "module",
