@@ -75,11 +75,11 @@
     "make-fixtures": "node scripts/make-fixtures.mjs"
   },
   "dependencies": {
-    "commander": "^12.1.0",
+    "commander": "^15.0.0",
     "jszip": "^3.10.1",
     "meshoptimizer": "^1.2.0",
-    "three": "^0.169.0",
-    "three-mesh-bvh": "^0.9.13",
+    "three": "^0.185.1",
+    "three-mesh-bvh": "^0.9.14",
     "watlas": "^1.0.1"
   },
   "devDependencies": {
