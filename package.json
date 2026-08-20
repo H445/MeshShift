@@ -83,20 +83,20 @@
     "watlas": "^1.0.1"
   },
   "devDependencies": {
-    "@eslint/js": "^9.16.0",
+    "@eslint/js": "^10.0.1",
     "@gltf-transform/core": "^4.1.1",
-    "@types/node": "^22.10.0",
+    "@types/node": "^26.2.0",
     "@types/three": "^0.169.0",
-    "@typescript-eslint/eslint-plugin": "^8.16.0",
-    "@typescript-eslint/parser": "^8.16.0",
+    "@typescript-eslint/eslint-plugin": "^8.67.0",
+    "@typescript-eslint/parser": "^8.67.0",
     "electron": "43.4.0",
     "electron-builder": "^26.15.3",
-    "eslint": "^9.16.0",
+    "eslint": "^10.8.1",
     "prettier": "^3.4.1",
     "tsup": "^8.3.5",
-    "typescript": "^5.7.2",
-    "vite": "^5.4.11",
-    "vitest": "^2.1.6"
+    "typescript": "^7.0.2",
+    "vite": "^8.2.1",
+    "vitest": "^4.1.10"
   },
   "repository": {
     "type": "git",
