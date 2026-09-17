@@ -75,18 +75,18 @@
     "make-fixtures": "node scripts/make-fixtures.mjs"
   },
   "dependencies": {
-    "commander": "^12.1.0",
-    "jszip": "^3.10.1",
+    "commander": "^15.0.0",
+    "jszip": "^3.10.2",
     "meshoptimizer": "^1.2.0",
-    "three": "^0.169.0",
-    "three-mesh-bvh": "^0.9.13",
+    "three": "^0.186.0",
+    "three-mesh-bvh": "^0.9.15",
     "watlas": "^1.0.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.16.0",
     "@gltf-transform/core": "^4.1.1",
     "@types/node": "^22.10.0",
-    "@types/three": "^0.169.0",
+    "@types/three": "^0.186.0",
     "@typescript-eslint/eslint-plugin": "^8.16.0",
     "@typescript-eslint/parser": "^8.16.0",
     "electron": "43.4.0",
